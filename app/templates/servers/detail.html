@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}{{ server.name }}{% endblock %}
+{% block page_title %}Server Detail{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" id="btnRefresh">
+    <i class="fa-solid fa-rotate me-1"></i> Refresh
+</button>
+<form method="POST" action="{{ url_for('servers.delete', server_id=server.id) }}"
+      onsubmit="return confirm('Delete this server?');" class="d-inline">
+    <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--danger);">
+        <i class="fa-solid fa-trash me-1"></i> Delete
+    </button>
+</form>
+{% endblock %}
+
+{% block content %}
+<!-- Server Info -->
+<div class="row g-3 mb-4">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <div>
+                        <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 2px;">{{ server.name }}</h2>
+                        <div style="color: var(--text-muted); font-size: 0.8rem;">{{ server.type_label }}</div>
+                        <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px;">
+                            {{ server.ip_address }}
+                            {% if server.idrac_ip %} / iDRAC: {{ server.idrac_ip }}{% endif %}
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        {% if server.is_online %}
+                        <span class="badge-status online"><span class="status-dot"></span> Online</span>
+                        {% else %}
+                        <span class="badge-status offline"><span class="status-dot"></span> Offline</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <table class="table table-sm mb-0" style="font-size: 0.85rem;">
+                    {% if server.system_model %}
+                    <tr>
+                        <td style="color: var(--text-secondary); width: 140px;"><i class="fa-solid fa-microchip me-2"></i>Model</td>
+                        <td>{{ server.system_model }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if server.serial_number %}
+                    <tr>
+                        <td style="color: var(--text-secondary);"><i class="fa-solid fa-barcode me-2"></i>Serial</td>
+                        <td>{{ server.serial_number }}</td>
+                    </tr>
+                    {% endif %}
+                    <tr>
+                        <td style="color: var(--text-secondary);"><i class="fa-solid fa-power-off me-2"></i>Power State</td>
+                        <td>{{ server.power_state or '--' }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color: var(--text-secondary);"><i class="fa-solid fa-heart-pulse me-2"></i>Health</td>
+                        <td>
+                            {% if server.health_rollup == 'OK' %}
+                            <span style="color: var(--success); font-weight: 600;"><i class="fa-solid fa-check-circle me-1"></i>OK</span>
+                            {% elif server.health_rollup == 'Warning' %}
+                            <span style="color: var(--warning); font-weight: 600;"><i class="fa-solid fa-triangle-exclamation me-1"></i>Warning</span>
+                            {% elif server.health_rollup %}
+                            <span style="color: var(--danger); font-weight: 600;"><i class="fa-solid fa-circle-exclamation me-1"></i>{{ server.health_rollup }}</span>
+                            {% else %}--{% endif %}
+                        </td>
+                    </tr>
+                    {% if server.description %}
+                    <tr>
+                        <td style="color: var(--text-secondary);"><i class="fa-solid fa-note-sticky me-2"></i>Description</td>
+                        <td>{{ server.description }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Metrics -->
+    <div class="col-lg-5">
+        <div class="row g-3">
+            {% if server.server_type == 'vxstorage' %}
+            <div class="col-6">
+                <div class="stat-card" style="flex-direction: column; text-align: center; padding: 16px;">
+                    <div class="stat-label" style="margin-bottom: 4px;">Inlet Temp</div>
+                    {% if server.inlet_temp %}
+                    <div class="temp-display {{ server.inlet_temp_status }}" style="font-size: 1.4rem;">{{ server.inlet_temp }}C</div>
+                    {% else %}<div class="stat-value" style="font-size: 1.4rem;">--</div>{% endif %}
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="stat-card" style="flex-direction: column; text-align: center; padding: 16px;">
+                    <div class="stat-label" style="margin-bottom: 4px;">Exhaust Temp</div>
+                    {% if server.exhaust_temp %}
+                    <div class="temp-display {{ server.exhaust_temp_status }}" style="font-size: 1.4rem;">{{ server.exhaust_temp }}C</div>
+                    {% else %}<div class="stat-value" style="font-size: 1.4rem;">--</div>{% endif %}
+                </div>
+            </div>
+            {% endif %}
+            <div class="col-6">
+                <div class="stat-card" style="flex-direction: column; text-align: center; padding: 16px;">
+                    <div class="stat-label" style="margin-bottom: 4px;">CPU Usage</div>
+                    <div class="stat-value" style="font-size: 1.4rem;">{{ server.cpu_usage|default('--', true) }}%</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="stat-card" style="flex-direction: column; text-align: center; padding: 16px;">
+                    <div class="stat-label" style="margin-bottom: 4px;">Memory</div>
+                    <div class="stat-value" style="font-size: 1.4rem;">{{ server.memory_usage|default('--', true) }}%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Power Supplies -->
+{% if server.psus %}
+<div class="card mb-4">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="fa-solid fa-plug me-2"></i>Power Supplies</span>
+        <span class="badge bg-secondary">{{ server.psus|length }} PSU</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Model</th>
+                        <th>Health</th>
+                        <th>Power Draw</th>
+                        <th>Capacity</th>
+                        <th>Load</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for psu in server.psus %}
+                    <tr>
+                        <td class="fw-semibold">{{ psu.name }}</td>
+                        <td style="color: var(--text-secondary);">{{ psu.model or '--' }}</td>
+                        <td>
+                            {% if psu.health_status == 'OK' %}
+                            <span style="color: var(--success); font-weight: 600; font-size: 0.8rem;"><i class="fa-solid fa-check-circle me-1"></i>OK</span>
+                            {% elif psu.health_status == 'Warning' %}
+                            <span style="color: var(--warning); font-weight: 600; font-size: 0.8rem;"><i class="fa-solid fa-triangle-exclamation me-1"></i>Warning</span>
+                            {% elif psu.health_status == 'Critical' %}
+                            <span style="color: var(--danger); font-weight: 600; font-size: 0.8rem;"><i class="fa-solid fa-circle-exclamation me-1"></i>Critical</span>
+                            {% else %}
+                            <span style="color: var(--text-muted); font-size: 0.8rem;">{{ psu.health_status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if psu.power_watts %}{{ psu.power_watts|round(0)|int }}W{% else %}--{% endif %}</td>
+                        <td>{% if psu.capacity_watts %}{{ psu.capacity_watts|round(0)|int }}W{% else %}--{% endif %}</td>
+                        <td style="min-width: 100px;">
+                            {% if psu.usage_percent %}
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="flex-grow-1">
+                                    <div class="health-bar">
+                                        <div class="health-bar-fill {{ 'normal' if psu.usage_percent < 60 else ('warning' if psu.usage_percent < 80 else 'critical') }}"
+                                             style="width: {{ psu.usage_percent }}%;"></div>
+                                    </div>
+                                </div>
+                                <span style="font-size: 0.75rem; color: var(--text-secondary);">{{ psu.usage_percent }}%</span>
+                            </div>
+                            {% else %}--{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- HDD Table -->
+<div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="fa-solid fa-hard-drive me-2"></i>Storage Drives</span>
+        <span class="badge bg-secondary">{{ server.hdds|length }} drives</span>
+    </div>
+    <div class="card-body p-0">
+        {% if server.hdds %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>{% if server.server_type == 'vxstorage' %}Slot{% else %}Device{% endif %}</th>
+                        <th>Model</th>
+                        <th>Type</th>
+                        <th>Capacity</th>
+                        <th>Usage</th>
+                        <th>Temp</th>
+                        <th>Health</th>
+                        <th>Power On</th>
+                        <th>Bad Sectors</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for hdd in server.hdds %}
+                    <tr>
+                        <td class="fw-semibold">{{ hdd.slot or hdd.device_name }}</td>
+                        <td style="color: var(--text-secondary); font-size: 0.8rem;">{{ hdd.model or '--' }}</td>
+                        <td style="color: var(--text-muted); font-size: 0.8rem;">
+                            {{ hdd.media_type or '' }} {{ hdd.protocol or '' }}
+                        </td>
+                        <td>
+                            {% if hdd.capacity_gb %}
+                            {{ (hdd.capacity_gb / 1000)|round(1) }} TB
+                            {% else %}--{% endif %}
+                        </td>
+                        <td style="min-width: 140px;">
+                            {% if hdd.capacity_gb and hdd.used_gb %}
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="flex-grow-1">
+                                    <div class="health-bar">
+                                        <div class="health-bar-fill {{ 'normal' if hdd.usage_percent < 70 else ('warning' if hdd.usage_percent < 90 else 'critical') }}"
+                                             style="width: {{ hdd.usage_percent }}%;"></div>
+                                    </div>
+                                </div>
+                                <span style="font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap;">{{ hdd.usage_percent }}%</span>
+                            </div>
+                            {% else %}--{% endif %}
+                        </td>
+                        <td>
+                            {% if hdd.temperature_c %}
+                            <span class="temp-display {{ hdd.temp_status }}">
+                                <i class="fa-solid fa-temperature-half me-1"></i>{{ hdd.temperature_c|round(1) }}C
+                            </span>
+                            {% else %}--{% endif %}
+                        </td>
+                        <td>
+                            {% if hdd.health_status == 'OK' %}
+                            <span style="color: var(--success); font-weight: 600; font-size: 0.8rem;"><i class="fa-solid fa-check-circle me-1"></i>OK</span>
+                            {% elif hdd.health_status == 'Critical' %}
+                            <span style="color: var(--danger); font-weight: 600; font-size: 0.8rem;"><i class="fa-solid fa-circle-exclamation me-1"></i>Critical</span>
+                            {% elif hdd.health_status == 'Warning' %}
+                            <span style="color: var(--warning); font-weight: 600; font-size: 0.8rem;"><i class="fa-solid fa-triangle-exclamation me-1"></i>Warning</span>
+                            {% else %}
+                            <span style="color: var(--text-muted); font-size: 0.8rem;">{{ hdd.health_status }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="color: var(--text-secondary); font-size: 0.85rem;">
+                            {% if hdd.power_on_hours %}{{ (hdd.power_on_hours / 24)|round(0)|int }}d{% else %}--{% endif %}
+                        </td>
+                        <td>
+                            {% if hdd.reallocated_sectors or hdd.pending_sectors %}
+                            <span style="color: var(--warning); font-size: 0.8rem;">R:{{ hdd.reallocated_sectors }} / P:{{ hdd.pending_sectors }}</span>
+                            {% else %}
+                            <span style="color: var(--text-muted); font-size: 0.8rem;">0</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state py-4">
+            <i class="fa-solid fa-hard-drive" style="font-size: 1.5rem;"></i>
+            <p>No drive data available. Click Refresh to poll the server.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if server.last_checked %}
+<div class="mt-2" style="font-size: 0.75rem; color: var(--text-muted);">
+    Last checked: {{ server.last_checked.strftime('%d/%m/%Y %H:%M:%S') }}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('btnRefresh').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Refreshing';
+    fetch('{{ url_for("servers.api_refresh", server_id=server.id) }}', { method: 'POST' })
+        .then(function () { window.location.reload(); })
+        .catch(function () { window.location.reload(); });
+});
+</script>
+{% endblock %}

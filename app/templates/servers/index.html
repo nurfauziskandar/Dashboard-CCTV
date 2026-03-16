@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Storage Servers{% endblock %}
+{% block page_title %}Pelco Storage Servers{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-accent btn-sm" data-bs-toggle="modal" data-bs-target="#addServerModal">
+    <i class="fa-solid fa-plus me-1"></i> Add Server
+</button>
+{% endblock %}
+
+{% block content %}
+{% if servers %}
+<div class="row g-3">
+    {% for server in servers %}
+    <div class="col-lg-6 col-xl-4">
+        <a href="{{ url_for('servers.detail', server_id=server.id) }}" class="text-decoration-none">
+            <div class="server-card">
+                <div class="d-flex align-items-start justify-content-between mb-2">
+                    <div>
+                        <div class="fw-bold" style="font-size: 1rem;">{{ server.name }}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">
+                            {{ server.type_label }}
+                        </div>
+                    </div>
+                    {% if server.is_online %}
+                    <span class="badge-status online"><span class="status-dot"></span> Online</span>
+                    {% else %}
+                    <span class="badge-status offline"><span class="status-dot"></span> Offline</span>
+                    {% endif %}
+                </div>
+
+                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+                    {{ server.ip_address }}
+                    {% if server.idrac_ip %} / iDRAC: {{ server.idrac_ip }}{% endif %}
+                </div>
+
+                {% if server.system_model %}
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">
+                    <i class="fa-solid fa-microchip me-1"></i>{{ server.system_model }}
+                </div>
+                {% endif %}
+
+                {% if server.health_rollup %}
+                <div class="mb-3">
+                    {% if server.health_rollup == 'OK' %}
+                    <span style="color: var(--success); font-size: 0.8rem; font-weight: 600;">
+                        <i class="fa-solid fa-check-circle me-1"></i>Health: OK
+                    </span>
+                    {% elif server.health_rollup == 'Warning' %}
+                    <span style="color: var(--warning); font-size: 0.8rem; font-weight: 600;">
+                        <i class="fa-solid fa-triangle-exclamation me-1"></i>Health: Warning
+                    </span>
+                    {% else %}
+                    <span style="color: var(--danger); font-size: 0.8rem; font-weight: 600;">
+                        <i class="fa-solid fa-circle-exclamation me-1"></i>Health: {{ server.health_rollup }}
+                    </span>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <div class="row g-2 text-center">
+                    {% if server.server_type == 'vxstorage' %}
+                    <div class="col-3">
+                        <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Inlet</div>
+                        {% if server.inlet_temp %}
+                        <div class="temp-display {{ server.inlet_temp_status }}" style="font-size: 1rem; font-weight: 700;">{{ server.inlet_temp }}C</div>
+                        {% else %}<div style="color: var(--text-muted);">--</div>{% endif %}
+                    </div>
+                    <div class="col-3">
+                        <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Exhaust</div>
+                        {% if server.exhaust_temp %}
+                        <div class="temp-display {{ server.exhaust_temp_status }}" style="font-size: 1rem; font-weight: 700;">{{ server.exhaust_temp }}C</div>
+                        {% else %}<div style="color: var(--text-muted);">--</div>{% endif %}
+                    </div>
+                    {% else %}
+                    <div class="col-3">
+                        <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">PSU</div>
+                        <div style="font-size: 1rem; font-weight: 700;">{% if server.psus %}{{ server.psus|length }}x{% else %}--{% endif %}</div>
+                    </div>
+                    <div class="col-3">
+                        <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Disks</div>
+                        <div style="font-size: 1rem; font-weight: 700;">{{ server.hdds|length }}</div>
+                    </div>
+                    {% endif %}
+                    <div class="col-3">
+                        <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">CPU</div>
+                        <div style="font-size: 1rem; font-weight: 700;">{{ server.cpu_usage|default('--', true) }}%</div>
+                    </div>
+                    <div class="col-3">
+                        <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Mem</div>
+                        <div style="font-size: 1rem; font-weight: 700;">{{ server.memory_usage|default('--', true) }}%</div>
+                    </div>
+                </div>
+
+                {% if server.hdds %}
+                <div class="mt-3 pt-3" style="border-top: 1px solid var(--border-color);">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 8px;">
+                        <i class="fa-solid fa-hard-drive me-1"></i>{{ server.hdds|length }} Drives
+                        {% set alerts = server.hdds|selectattr('health_status', 'ne', 'OK')|list %}
+                        {% if alerts %}
+                        <span style="color: var(--warning);"> / {{ alerts|length }} alert(s)</span>
+                        {% endif %}
+                    </div>
+                    {% for hdd in server.hdds[:3] %}
+                    <div class="d-flex align-items-center gap-2 mb-1" style="font-size: 0.75rem;">
+                        <span style="color: var(--text-muted); width: 55px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ hdd.slot or hdd.device_name }}</span>
+                        <div class="flex-grow-1">
+                            <div class="health-bar">
+                                <div class="health-bar-fill {{ hdd.temp_status }}" style="width: {{ hdd.usage_percent }}%;"></div>
+                            </div>
+                        </div>
+                        <span class="temp-display {{ hdd.temp_status }}" style="font-size: 0.7rem; width: 40px; text-align: right;">
+                            {% if hdd.temperature_c %}{{ hdd.temperature_c|round(0)|int }}C{% else %}--{% endif %}
+                        </span>
+                    </div>
+                    {% endfor %}
+                    {% if server.hdds|length > 3 %}
+                    <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">+{{ server.hdds|length - 3 }} more</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <i class="fa-solid fa-server"></i>
+    <p>No storage servers configured. Add your Pelco VX Storage or Endura NSM5200.</p>
+    <button class="btn btn-accent btn-sm mt-3" data-bs-toggle="modal" data-bs-target="#addServerModal">
+        <i class="fa-solid fa-plus me-1"></i> Add Server
+    </button>
+</div>
+{% endif %}
+
+<!-- Add Server Modal -->
+<div class="modal fade" id="addServerModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="background: var(--bg-card); border-color: var(--border-color);">
+            <form method="POST" action="{{ url_for('servers.add') }}">
+                <div class="modal-header" style="border-color: var(--border-color);">
+                    <h5 class="modal-title" style="font-size: 1rem;">
+                        <i class="fa-solid fa-server me-2"></i>Add Pelco Storage Server
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <label class="form-label">Server Name</label>
+                            <input type="text" class="form-control" name="name" required placeholder="e.g., VxStorage-E-01">
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label">Server Type</label>
+                            <select class="form-select" name="server_type" id="serverTypeSelect">
+                                <option value="vxstorage" selected>Pelco VX Storage</option>
+                                <option value="endura">Pelco Endura (NSM5200)</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label">Server IP Address</label>
+                            <input type="text" class="form-control" name="ip_address" required placeholder="192.168.1.10">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" name="description" rows="2" placeholder="e.g., Primary recording server - Gedung A"></textarea>
+                        </div>
+                        <div class="col-12 idrac-fields"><hr style="border-color: var(--border-color);">
+                            <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px;">
+                                <i class="fa-solid fa-network-wired me-1"></i>Dell iDRAC Connection
+                            </div>
+                        </div>
+                        <div class="col-sm-4 idrac-fields">
+                            <label class="form-label">iDRAC IP</label>
+                            <input type="text" class="form-control" name="idrac_ip" placeholder="192.168.1.110">
+                        </div>
+                        <div class="col-sm-4 idrac-fields">
+                            <label class="form-label">iDRAC Username</label>
+                            <input type="text" class="form-control" name="idrac_username" value="root">
+                        </div>
+                        <div class="col-sm-4 idrac-fields">
+                            <label class="form-label">iDRAC Password</label>
+                            <input type="password" class="form-control" name="idrac_password" placeholder="Password">
+                        </div>
+                        <div class="col-sm-6 snmp-fields" style="display:none;">
+                            <hr style="border-color: var(--border-color);">
+                            <label class="form-label">SNMP Community</label>
+                            <input type="text" class="form-control" name="snmp_community" value="public">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-color: var(--border-color);">
+                    <button type="button" class="btn btn-ghost" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-accent"><i class="fa-solid fa-plus me-1"></i> Add Server</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var s = document.getElementById('serverTypeSelect');
+    if (s) s.addEventListener('change', function () {
+        var vx = this.value === 'vxstorage';
+        var en = this.value === 'endura';
+        document.querySelectorAll('.idrac-fields').forEach(function (e) { e.style.display = vx ? '' : 'none'; });
+        document.querySelectorAll('.snmp-fields').forEach(function (e) { e.style.display = en ? '' : 'none'; });
+    });
+});
+</script>
+{% endblock %}

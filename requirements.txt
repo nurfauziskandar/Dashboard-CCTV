@@ -1,0 +1,24 @@
+# Core
+Flask>=3.0
+Flask-SQLAlchemy>=3.1
+Flask-APScheduler>=1.13
+
+# ONVIF / Camera integration
+onvif-zeep>=0.2.12
+WSDiscovery>=2.0.0
+zeep>=4.2
+
+# Server monitoring (iDRAC Redfish + SNMP)
+requests>=2.31
+pysnmp>=4.4
+
+# Streaming (RTSP to MJPEG proxy)
+opencv-python-headless>=4.9
+Pillow>=10.0
+
+# Security
+cryptography>=42.0
+
+# Development / Testing
+pytest>=8.0
+flake8>=7.0

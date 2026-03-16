@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Stats Row -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-icon accent">
+                <i class="fa-solid fa-video"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">{{ cam_counts.total }}</div>
+                <div class="stat-label">Total Cameras</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-icon success">
+                <i class="fa-solid fa-circle-check"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">{{ cam_counts.active }}</div>
+                <div class="stat-label">Active</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-icon danger">
+                <i class="fa-solid fa-circle-xmark"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">{{ cam_counts.inactive }}</div>
+                <div class="stat-label">Inactive</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-icon {{ 'warning' if srv_summary.hdd_alerts > 0 else 'info' }}">
+                <i class="fa-solid fa-hard-drive"></i>
+            </div>
+            <div class="stat-content">
+                <div class="stat-value">{{ srv_summary.hdd_alerts }}</div>
+                <div class="stat-label">HDD Alerts</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <!-- Map -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span><i class="fa-solid fa-map-location-dot me-2"></i>Camera Locations</span>
+                <span class="badge bg-secondary">{{ cameras|length }} devices</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="map-container">
+                    <div id="dashboardMap" style="height: 400px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Server Status -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="fa-solid fa-server me-2"></i>Server Status
+            </div>
+            <div class="card-body">
+                {% if servers %}
+                {% for server in servers %}
+                <div class="d-flex align-items-center justify-content-between mb-3 pb-3 {{ '' if loop.last else 'border-bottom' }}" style="border-color: var(--border-color) !important;">
+                    <div>
+                        <div class="fw-semibold" style="font-size: 0.9rem;">{{ server.name }}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-secondary);">{{ server.ip_address }}</div>
+                    </div>
+                    <div class="text-end">
+                        {% if server.is_online %}
+                        <span class="badge-status online">
+                            <span class="status-dot"></span> Online
+                        </span>
+                        {% else %}
+                        <span class="badge-status offline">
+                            <span class="status-dot"></span> Offline
+                        </span>
+                        {% endif %}
+                        {% if server.inlet_temp %}
+                        <div class="temp-display {{ server.inlet_temp_status }}" style="font-size: 0.8rem; margin-top: 2px;">
+                            <i class="fa-solid fa-temperature-half"></i> {{ server.inlet_temp }}C
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="empty-state py-4">
+                    <i class="fa-solid fa-server"></i>
+                    <p>No servers configured</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Cameras Table -->
+<div class="row g-3 mt-1">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span><i class="fa-solid fa-list me-2"></i>Camera Overview</span>
+                <a href="{{ url_for('cameras.index') }}" class="btn btn-ghost btn-sm">
+                    View All <i class="fa-solid fa-arrow-right ms-1"></i>
+                </a>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>IP Address</th>
+                                <th>Model</th>
+                                <th>Location</th>
+                                <th>Status</th>
+                                <th>Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for cam in cameras[:10] %}
+                            <tr>
+                                <td>
+                                    <a href="{{ url_for('cameras.detail', camera_id=cam.id) }}" class="fw-semibold">
+                                        {{ cam.name }}
+                                    </a>
+                                </td>
+                                <td style="color: var(--text-secondary);">{{ cam.ip_address }}</td>
+                                <td style="color: var(--text-secondary);">{{ cam.model or '-' }}</td>
+                                <td style="color: var(--text-secondary);">{{ cam.location_name or '-' }}</td>
+                                <td>
+                                    {% if cam.is_active %}
+                                    <span class="badge-status online"><span class="status-dot"></span> Active</span>
+                                    {% else %}
+                                    <span class="badge-status offline"><span class="status-dot"></span> Inactive</span>
+                                    {% endif %}
+                                </td>
+                                <td style="color: var(--text-muted); font-size: 0.8rem;">
+                                    {{ cam.last_seen.strftime('%d/%m/%Y %H:%M') if cam.last_seen else '-' }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var mapCenter = {{ config.DEFAULT_MAP_CENTER | tojson }};
+    var mapZoom = {{ config.DEFAULT_MAP_ZOOM }};
+    var cameras = {{ cameras_json | safe }};
+
+    var map = L.map('dashboardMap').setView(mapCenter, mapZoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        maxZoom: 19
+    }).addTo(map);
+
+    cameras.forEach(function (cam) {
+        if (cam.latitude && cam.longitude) {
+            var color = cam.is_active ? '#2ecc71' : '#e74c3c';
+            var icon = L.divIcon({
+                html: '<i class="fa-solid fa-video" style="color:' + color + '; font-size: 18px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));"></i>',
+                className: 'camera-marker',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            });
+            L.marker([cam.latitude, cam.longitude], { icon: icon })
+                .addTo(map)
+                .bindPopup(
+                    '<strong>' + cam.name + '</strong><br>' +
+                    '<span style="font-size:12px;">' + cam.ip_address + '</span><br>' +
+                    '<span style="font-size:12px;">' + (cam.location_name || '') + '</span>'
+                );
+        }
+    });
+});
+</script>
+{% endblock %}

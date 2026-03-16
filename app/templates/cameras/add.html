@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Add Camera{% endblock %}
+{% block page_title %}Add Camera{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-plus me-2"></i>Camera Information
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('cameras.add') }}">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Camera Name</label>
+                            <input type="text" class="form-control" name="name"
+                                   value="{{ request.args.get('name', '') }}" required
+                                   placeholder="e.g., Lobby Utama">
+                        </div>
+                        <div class="col-8">
+                            <label class="form-label">IP Address</label>
+                            <input type="text" class="form-control" name="ip_address"
+                                   value="{{ request.args.get('ip', '') }}" required
+                                   placeholder="192.168.1.100">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" name="port"
+                                   value="{{ request.args.get('port', '80') }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">ONVIF Username</label>
+                            <input type="text" class="form-control" name="onvif_username"
+                                   placeholder="admin">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">ONVIF Password</label>
+                            <input type="password" class="form-control" name="onvif_password"
+                                   placeholder="Password">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Manufacturer</label>
+                            <select class="form-select" name="manufacturer">
+                                <option value="Pelco" selected>Pelco</option>
+                                <option value="Hikvision">Hikvision</option>
+                                <option value="Dahua">Dahua</option>
+                                <option value="Axis">Axis</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Model</label>
+                            <input type="text" class="form-control" name="model"
+                                   placeholder="e.g., Sarix IMP Series">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Location Name</label>
+                            <input type="text" class="form-control" name="location_name"
+                                   placeholder="e.g., Gedung A - Lobby">
+                        </div>
+
+                        <input type="hidden" name="latitude" id="inputLat">
+                        <input type="hidden" name="longitude" id="inputLng">
+
+                        <div class="col-12" id="coordDisplay" style="display: none;">
+                            <div class="d-flex align-items-center gap-2" style="font-size: 0.8rem; color: var(--text-secondary);">
+                                <i class="fa-solid fa-map-pin"></i>
+                                <span id="coordText"></span>
+                                <button type="button" class="btn btn-link btn-sm p-0" id="clearCoords" style="font-size: 0.75rem;">
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="col-12 mt-3">
+                            <button type="submit" class="btn btn-accent">
+                                <i class="fa-solid fa-plus me-1"></i> Add Camera
+                            </button>
+                            <a href="{{ url_for('cameras.index') }}" class="btn btn-ghost ms-2">
+                                Cancel
+                            </a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-map-location-dot me-2"></i>Pick Location on Map
+            </div>
+            <div class="card-body p-0">
+                <div class="map-container">
+                    <div id="addCameraMap" style="height: 500px;"></div>
+                </div>
+                <div class="p-3" style="font-size: 0.8rem; color: var(--text-secondary);">
+                    Click on the map to set the camera location.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var mapCenter = {{ config.DEFAULT_MAP_CENTER | tojson }};
+    var mapZoom = {{ config.DEFAULT_MAP_ZOOM }};
+
+    var map = L.map('addCameraMap').setView(mapCenter, mapZoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        maxZoom: 19
+    }).addTo(map);
+
+    var marker = null;
+    var inputLat = document.getElementById('inputLat');
+    var inputLng = document.getElementById('inputLng');
+    var coordDisplay = document.getElementById('coordDisplay');
+    var coordText = document.getElementById('coordText');
+
+    var icon = L.divIcon({
+        html: '<i class="fa-solid fa-video" style="color: var(--accent); font-size: 22px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));"></i>',
+        className: 'camera-marker',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
+
+    map.on('click', function (e) {
+        var lat = e.latlng.lat.toFixed(6);
+        var lng = e.latlng.lng.toFixed(6);
+
+        inputLat.value = lat;
+        inputLng.value = lng;
+        coordText.textContent = lat + ', ' + lng;
+        coordDisplay.style.display = 'block';
+
+        if (marker) {
+            marker.setLatLng(e.latlng);
+        } else {
+            marker = L.marker(e.latlng, { icon: icon }).addTo(map);
+        }
+    });
+
+    document.getElementById('clearCoords').addEventListener('click', function () {
+        inputLat.value = '';
+        inputLng.value = '';
+        coordDisplay.style.display = 'none';
+        if (marker) {
+            map.removeLayer(marker);
+            marker = null;
+        }
+    });
+});
+</script>
+{% endblock %}

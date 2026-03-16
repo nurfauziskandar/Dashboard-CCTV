@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Cameras{% endblock %}
+{% block page_title %}Cameras{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('cameras.add') }}" class="btn btn-accent btn-sm">
+    <i class="fa-solid fa-plus me-1"></i> Add Camera
+</a>
+{% endblock %}
+
+{% block content %}
+<!-- Filter Bar -->
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+    <div class="filter-bar">
+        <button class="filter-btn {{ 'active' if not status_filter }}" data-filter="all">
+            All ({{ counts.total }})
+        </button>
+        <button class="filter-btn {{ 'active' if status_filter == 'active' }}" data-filter="active">
+            <i class="fa-solid fa-circle" style="font-size: 6px; color: var(--success);"></i>
+            Active ({{ counts.active }})
+        </button>
+        <button class="filter-btn {{ 'active' if status_filter == 'inactive' }}" data-filter="inactive">
+            <i class="fa-solid fa-circle" style="font-size: 6px; color: var(--danger);"></i>
+            Inactive ({{ counts.inactive }})
+        </button>
+    </div>
+    <div>
+        <button class="btn btn-ghost btn-sm" id="btnDiscover">
+            <i class="fa-solid fa-radar me-1"></i> Discover
+        </button>
+    </div>
+</div>
+
+<!-- Camera Grid -->
+{% if cameras %}
+<div class="row g-3" id="cameraGrid">
+    {% for cam in cameras %}
+    <div class="col-sm-6 col-lg-4 col-xl-3 camera-item" data-status="{{ 'active' if cam.is_active else 'inactive' }}">
+        <a href="{{ url_for('cameras.detail', camera_id=cam.id) }}" class="text-decoration-none">
+            <div class="camera-card">
+                <div class="camera-card-thumb" style="position: relative; overflow: hidden;">
+                    <img src="{{ url_for('cameras.api_snapshot', camera_id=cam.id) }}"
+                         alt="{{ cam.name }}"
+                         class="camera-thumb-img"
+                         style="width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0;"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+                         loading="lazy">
+                    <div style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;">
+                        <i class="fa-solid fa-video"></i>
+                    </div>
+                    <div class="status-indicator">
+                        {% if cam.is_active %}
+                        <span class="badge-status online"><span class="status-dot"></span> Active</span>
+                        {% else %}
+                        <span class="badge-status offline"><span class="status-dot"></span> Inactive</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="camera-card-body">
+                    <div class="camera-card-name">{{ cam.name }}</div>
+                    <div class="camera-card-meta">
+                        <span><i class="fa-solid fa-network-wired"></i> {{ cam.ip_address }}</span>
+                        <span><i class="fa-solid fa-microchip"></i> {{ cam.model or cam.manufacturer }}</span>
+                        {% if cam.location_name %}
+                        <span><i class="fa-solid fa-location-dot"></i> {{ cam.location_name }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <i class="fa-solid fa-video-slash"></i>
+    <p>No cameras found. Add your first camera or run a network discovery.</p>
+    <a href="{{ url_for('cameras.add') }}" class="btn btn-accent btn-sm mt-3">
+        <i class="fa-solid fa-plus me-1"></i> Add Camera
+    </a>
+</div>
+{% endif %}
+
+<!-- Discover Modal -->
+<div class="modal fade" id="discoverModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content" style="background: var(--bg-card); border-color: var(--border-color);">
+            <div class="modal-header" style="border-color: var(--border-color);">
+                <h5 class="modal-title" style="font-size: 1rem;">
+                    <i class="fa-solid fa-radar me-2"></i>Discovered Cameras
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="discoverResults">
+                <div class="text-center py-4">
+                    <i class="fa-solid fa-spinner fa-spin"></i> Scanning network...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // Filter buttons
+    document.querySelectorAll('.filter-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var filter = this.dataset.filter;
+            var url = '{{ url_for("cameras.index") }}';
+            if (filter !== 'all') url += '?status=' + filter;
+            window.location.href = url;
+        });
+    });
+
+    // Discover
+    var btnDiscover = document.getElementById('btnDiscover');
+    if (btnDiscover) {
+        btnDiscover.addEventListener('click', function () {
+            var modal = new bootstrap.Modal(document.getElementById('discoverModal'));
+            modal.show();
+            fetch('{{ url_for("cameras.api_discover") }}')
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var html = '';
+                    if (data.devices && data.devices.length > 0) {
+                        html = '<div class="list-group">';
+                        data.devices.forEach(function (d) {
+                            html += '<div class="list-group-item d-flex justify-content-between align-items-center" style="background: var(--bg-input); border-color: var(--border-color); color: var(--text-primary);">';
+                            html += '<div><strong>' + d.name + '</strong><br><small style="color: var(--text-secondary);">' + d.ip + ':' + d.port + '</small></div>';
+                            html += '<a href="{{ url_for("cameras.add") }}?ip=' + d.ip + '&port=' + d.port + '&name=' + encodeURIComponent(d.name) + '" class="btn btn-accent btn-sm">Add</a>';
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                    } else {
+                        html = '<div class="text-center py-3" style="color: var(--text-muted);">No devices found on the network.</div>';
+                    }
+                    document.getElementById('discoverResults').innerHTML = html;
+                })
+                .catch(function () {
+                    document.getElementById('discoverResults').innerHTML =
+                        '<div class="text-center py-3" style="color: var(--danger);">Discovery failed. Check network connection.</div>';
+                });
+        });
+    }
+});
+</script>
+{% endblock %}

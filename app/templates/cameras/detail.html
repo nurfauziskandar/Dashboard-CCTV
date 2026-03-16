@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}{{ camera.name }}{% endblock %}
+{% block page_title %}Camera Detail{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" id="btnRefresh">
+    <i class="fa-solid fa-rotate me-1"></i> Refresh
+</button>
+<form method="POST" action="{{ url_for('cameras.delete', camera_id=camera.id) }}"
+      onsubmit="return confirm('Delete this camera?');" class="d-inline">
+    <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--danger);">
+        <i class="fa-solid fa-trash me-1"></i> Delete
+    </button>
+</form>
+{% endblock %}
+
+{% block content %}
+<!-- Live Stream -->
+<div class="card mb-3">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span>
+            <i class="fa-solid fa-video me-2"></i>Live View
+            {% if camera.is_active %}
+            <span class="badge-status online ms-2" style="font-size: 0.7rem;"><span class="status-dot"></span> Live</span>
+            {% endif %}
+        </span>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-ghost btn-sm" id="btnToggleStream" title="Play / Pause">
+                <i class="fa-solid fa-pause" id="streamToggleIcon"></i>
+            </button>
+            <button class="btn btn-ghost btn-sm" id="btnFullscreen" title="Fullscreen">
+                <i class="fa-solid fa-expand"></i>
+            </button>
+            <button class="btn btn-ghost btn-sm" id="btnSnapshot" title="Take Snapshot">
+                <i class="fa-solid fa-camera"></i>
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0" id="streamContainer" style="background: #000; position: relative;">
+        <img id="liveStream"
+             src="{{ url_for('cameras.stream', camera_id=camera.id) }}"
+             alt="Live stream - {{ camera.name }}"
+             style="width: 100%; display: block; max-height: 500px; object-fit: contain; background: #000;">
+        <div id="streamOffline" style="display: none; position: absolute; inset: 0; display: none;
+             flex-direction: column; align-items: center; justify-content: center;
+             background: #000; color: var(--text-muted);">
+            <i class="fa-solid fa-video-slash" style="font-size: 2rem; margin-bottom: 8px;"></i>
+            <div>Stream unavailable</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <!-- Camera Info -->
+    <div class="col-lg-8">
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex align-items-start justify-content-between mb-3">
+                    <div>
+                        <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 4px;">{{ camera.name }}</h2>
+                        <div style="color: var(--text-secondary); font-size: 0.85rem;">
+                            {{ camera.ip_address }}:{{ camera.port }}
+                        </div>
+                    </div>
+                    {% if camera.is_active %}
+                    <span class="badge-status online"><span class="status-dot"></span> Active</span>
+                    {% else %}
+                    <span class="badge-status offline"><span class="status-dot"></span> Inactive</span>
+                    {% endif %}
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <table class="table table-sm mb-0" style="font-size: 0.85rem;">
+                            <tr>
+                                <td style="color: var(--text-secondary); width: 140px;"><i class="fa-solid fa-industry me-2"></i>Manufacturer</td>
+                                <td>{{ camera.manufacturer or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <td style="color: var(--text-secondary);"><i class="fa-solid fa-microchip me-2"></i>Model</td>
+                                <td>{{ camera.model or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <td style="color: var(--text-secondary);"><i class="fa-solid fa-code-branch me-2"></i>Firmware</td>
+                                <td>{{ camera.firmware or '-' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-sm-6">
+                        <table class="table table-sm mb-0" style="font-size: 0.85rem;">
+                            <tr>
+                                <td style="color: var(--text-secondary); width: 140px;"><i class="fa-solid fa-location-dot me-2"></i>Location</td>
+                                <td>{{ camera.location_name or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <td style="color: var(--text-secondary);"><i class="fa-solid fa-clock me-2"></i>Last Seen</td>
+                                <td>{{ camera.last_seen.strftime('%d/%m/%Y %H:%M') if camera.last_seen else '-' }}</td>
+                            </tr>
+                            <tr>
+                                <td style="color: var(--text-secondary);"><i class="fa-solid fa-calendar me-2"></i>Added</td>
+                                <td>{{ camera.created_at.strftime('%d/%m/%Y') }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stream Info -->
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-link me-2"></i>Stream Information
+            </div>
+            <div class="card-body">
+                {% if camera.stream_uri %}
+                <div class="mb-2">
+                    <label class="form-label">RTSP Stream URI</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" value="{{ camera.stream_uri }}" readonly id="streamUri">
+                        <button class="btn btn-ghost" onclick="navigator.clipboard.writeText(document.getElementById('streamUri').value)">
+                            <i class="fa-solid fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                {% endif %}
+                {% if camera.snapshot_uri %}
+                <div>
+                    <label class="form-label">Snapshot URI</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" value="{{ camera.snapshot_uri }}" readonly id="snapUri">
+                        <button class="btn btn-ghost" onclick="navigator.clipboard.writeText(document.getElementById('snapUri').value)">
+                            <i class="fa-solid fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="mt-2">
+                    <label class="form-label">MJPEG Stream URL (browser)</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control"
+                               value="{{ url_for('cameras.stream', camera_id=camera.id, _external=True) }}"
+                               readonly id="mjpegUri">
+                        <button class="btn btn-ghost" onclick="navigator.clipboard.writeText(document.getElementById('mjpegUri').value)">
+                            <i class="fa-solid fa-copy"></i>
+                        </button>
+                    </div>
+                    <div class="form-text" style="font-size: 0.75rem;">
+                        URL ini bisa dibuka langsung di browser atau diembed menggunakan tag &lt;img&gt;.
+                    </div>
+                </div>
+                {% if not camera.stream_uri and not camera.snapshot_uri %}
+                <div class="empty-state py-3">
+                    <i class="fa-solid fa-link-slash" style="font-size: 1.5rem;"></i>
+                    <p>No stream information available</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Map -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-map-pin me-2"></i>Location
+            </div>
+            <div class="card-body p-0">
+                {% if camera.latitude and camera.longitude %}
+                <div class="map-container">
+                    <div id="cameraMap" style="height: 300px;"></div>
+                </div>
+                <div class="p-3" style="font-size: 0.8rem; color: var(--text-secondary);">
+                    {{ camera.latitude }}, {{ camera.longitude }}
+                </div>
+                {% else %}
+                <div class="empty-state py-4">
+                    <i class="fa-solid fa-map-pin" style="font-size: 1.5rem;"></i>
+                    <p>No location set</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    {% if camera.latitude and camera.longitude %}
+    var lat = {{ camera.latitude }};
+    var lng = {{ camera.longitude }};
+    var map = L.map('cameraMap').setView([lat, lng], 16);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        maxZoom: 19
+    }).addTo(map);
+
+    var color = {{ 'true' if camera.is_active else 'false' }} ? '#2ecc71' : '#e74c3c';
+    var icon = L.divIcon({
+        html: '<i class="fa-solid fa-video" style="color:' + color + '; font-size: 20px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));"></i>',
+        className: 'camera-marker',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
+    L.marker([lat, lng], { icon: icon }).addTo(map);
+    {% endif %}
+
+    // Refresh
+    document.getElementById('btnRefresh').addEventListener('click', function () {
+        var btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i> Refreshing';
+        fetch('{{ url_for("cameras.api_refresh", camera_id=camera.id) }}', { method: 'POST' })
+            .then(function () { window.location.reload(); })
+            .catch(function () { window.location.reload(); });
+    });
+
+    // Stream controls
+    var streamImg = document.getElementById('liveStream');
+    var streamUrl = '{{ url_for("cameras.stream", camera_id=camera.id) }}';
+    var isPlaying = true;
+
+    // Play / Pause toggle
+    document.getElementById('btnToggleStream').addEventListener('click', function () {
+        var icon = document.getElementById('streamToggleIcon');
+        if (isPlaying) {
+            streamImg.src = '';
+            icon.className = 'fa-solid fa-play';
+            isPlaying = false;
+        } else {
+            streamImg.src = streamUrl + '?t=' + Date.now();
+            icon.className = 'fa-solid fa-pause';
+            isPlaying = true;
+        }
+    });
+
+    // Fullscreen
+    document.getElementById('btnFullscreen').addEventListener('click', function () {
+        var container = document.getElementById('streamContainer');
+        if (container.requestFullscreen) {
+            container.requestFullscreen();
+        } else if (container.webkitRequestFullscreen) {
+            container.webkitRequestFullscreen();
+        }
+    });
+
+    // Snapshot download
+    document.getElementById('btnSnapshot').addEventListener('click', function () {
+        var a = document.createElement('a');
+        a.href = '{{ url_for("cameras.api_snapshot", camera_id=camera.id) }}';
+        a.download = '{{ camera.name | replace(" ", "_") }}_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.jpg';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    });
+
+    // Handle stream error
+    streamImg.addEventListener('error', function () {
+        document.getElementById('streamOffline').style.display = 'flex';
+        streamImg.style.display = 'none';
+    });
+});
+</script>
+{% endblock %}
