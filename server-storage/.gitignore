@@ -1,0 +1,5 @@
+recordings/
+.certs/
+__pycache__/
+*.pyc
+instance/

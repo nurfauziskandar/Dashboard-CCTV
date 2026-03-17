@@ -1,0 +1,14 @@
+# Web framework
+Flask>=3.0
+
+# Hardware monitoring (real stats from host)
+psutil>=5.9
+
+# RTSP recording
+opencv-python-headless>=4.9
+
+# SNMP agent (optional, for Endura mode)
+pysnmp>=4.4
+
+# SSL certificate generation
+cryptography>=42.0
