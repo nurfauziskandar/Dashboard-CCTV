@@ -238,6 +238,52 @@ Semua kamera Pelco yang mendukung ONVIF Profile S/T, termasuk:
 
 ---
 
+## Streaming Video
+
+Dashboard mendukung dua mode streaming:
+
+### Mode Production (Real RTSP)
+
+`StreamService` (`app/services/stream_service.py`) mengkonversi stream RTSP dari kamera ke MJPEG untuk browser:
+
+- Satu thread background (`_RTSPCapture`) per kamera yang sedang ditonton
+- Auto-reconnect dengan exponential backoff jika koneksi RTSP terputus
+- Thread-safe frame buffer
+- Release otomatis saat tab browser ditutup
+
+```
+GET /cameras/<id>/stream        → MJPEG multipart/x-mixed-replace
+GET /cameras/api/<id>/snapshot  → JPEG single frame
+```
+
+### Mode Demo (Synthetic Frames)
+
+`FakeStreamService` (`app/services/demo/fake_stream.py`) membuat frame sintetis tanpa kamera nyata:
+
+- Pattern grid pengawasan dengan efek scanline
+- Objek bergerak dengan jalur acak
+- Overlay timestamp dan nama kamera
+- Indikator REC berkedip
+- Frame rate ~10 FPS via Pillow + NumPy
+
+---
+
+## Mode Demo vs Production
+
+| Aspek | Demo Mode | Production Mode |
+|-------|-----------|-----------------|
+| `FLASK_ENV` | `development` | `production` |
+| `DEMO_MODE` | `True` | `False` |
+| Kamera | 12 kamera Pelco fiktif (Jakarta) | Kamera ONVIF nyata via probe |
+| Server | 3 server storage fiktif | iDRAC Redfish + SNMP nyata |
+| Streaming | Frame sintetis (Pillow) | RTSP via OpenCV |
+| HDD data | Acak realistis (SMART, suhu, health) | Data nyata dari iDRAC/SNMP |
+| Auto-seed | Database terisi otomatis | Mulai kosong |
+
+Demo mode menggunakan pola adapter injection -- `CameraService` dan `ServerService` menerima adapter berbeda saat startup tergantung `DEMO_MODE`. Logika bisnis identik di kedua mode.
+
+---
+
 ## Instalasi
 
 ### 1. Clone Repository
@@ -961,3 +1007,72 @@ python3 run.py  # Database akan dibuat ulang
 | power_watts | FLOAT | Daya terpakai saat ini (Watt) |
 | capacity_watts | FLOAT | Kapasitas maksimum (Watt) |
 | last_checked | DATETIME | Terakhir kali di-poll |
+
+---
+
+## Dependensi
+
+| Paket | Versi Minimum | Fungsi |
+|-------|---------------|--------|
+| Flask | 3.0 | Web framework utama |
+| Flask-SQLAlchemy | 3.1 | ORM untuk SQLite |
+| Flask-APScheduler | 1.13 | Background polling jobs |
+| onvif-zeep | 0.2.12 | ONVIF SOAP client |
+| wsdiscovery | 2.0 | WS-Discovery multicast scan |
+| zeep | 4.2 | SOAP library (dep onvif-zeep) |
+| requests | 2.31 | HTTP client untuk iDRAC Redfish |
+| pysnmp | 4.4 | SNMP client untuk Endura NSM5200 |
+| opencv-python-headless | 4.9 | RTSP-to-MJPEG conversion |
+| Pillow | 10.0 | Frame generation (demo mode) |
+| numpy | 1.26 | Array operations untuk frame demo |
+| cryptography | 42.0 | Enkripsi credentials (Fernet) |
+| pytest | 8.0 | Testing |
+| flake8 | 7.0 | Linting |
+
+---
+
+## Struktur Proyek
+
+```
+Dashboard-CCTV/
+├── run.py                      # Entry point
+├── config.py                   # BaseConfig, DevelopmentConfig, ProductionConfig
+├── requirements.txt
+├── instance/
+│   └── dashboard.db            # SQLite database (auto-dibuat)
+└── app/
+    ├── __init__.py             # App factory, demo seeding, scheduler setup
+    ├── extensions.py           # db (SQLAlchemy), scheduler (APScheduler)
+    ├── models/
+    │   ├── camera.py           # Camera model
+    │   └── server.py           # Server, HDD, PSU models
+    ├── services/
+    │   ├── camera_service.py   # CameraService (CRUD + polling)
+    │   ├── server_service.py   # ServerService (CRUD + polling)
+    │   ├── onvif_adapter.py    # Integrasi ONVIF nyata (onvif-zeep)
+    │   ├── hardware_monitor.py # iDRAC Redfish + SNMP monitoring
+    │   ├── stream_service.py   # RTSP-to-MJPEG (OpenCV)
+    │   └── demo/
+    │       ├── fake_cameras.py # 12 kamera demo + FakeCameraAdapter
+    │       ├── fake_hardware.py# 3 server demo + FakeHardwareMonitor
+    │       └── fake_stream.py  # Synthetic frame generator
+    ├── routes/
+    │   ├── __init__.py         # Registrasi blueprint
+    │   ├── dashboard.py        # GET / — overview
+    │   ├── cameras.py          # /cameras/* + /cameras/api/*
+    │   └── servers.py          # /servers/* + /servers/api/*
+    ├── templates/
+    │   ├── base.html           # Master layout (sidebar + topbar)
+    │   ├── dashboard/
+    │   │   └── index.html      # Stats cards + peta + server sidebar
+    │   ├── cameras/
+    │   │   ├── index.html      # Grid kamera + filter aktif/nonaktif
+    │   │   ├── add.html        # Form tambah kamera + peta click-to-place
+    │   │   └── detail.html     # Live stream + info kamera
+    │   └── servers/
+    │       ├── index.html      # Kartu server + modal tambah server
+    │       └── detail.html     # Suhu + HDD table + PSU table
+    └── static/
+        ├── css/main.css        # CSS variables dark/light, semua custom style
+        └── js/theme-toggle.js  # Tema switcher + mobile sidebar toggle
+```
