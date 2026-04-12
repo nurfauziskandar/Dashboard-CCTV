@@ -1,6 +1,6 @@
 # Dashboard CCTV - Pelco Integration
 
-Aplikasi dashboard monitoring CCTV berbasis Flask untuk mengintegrasikan sistem Pelco. Memantau kamera via ONVIF, memonitor server storage (suhu, HDD health), filter kamera aktif/non-aktif, dan penandaan lokasi kamera pada peta.
+Aplikasi dashboard monitoring CCTV berbasis Flask untuk mengintegrasikan sistem Pelco. Memantau kamera via ONVIF, memonitor server storage (suhu, HDD health), filter kamera aktif dan non-aktif, dan penandaan lokasi kamera pada peta.
 
 ---
 
