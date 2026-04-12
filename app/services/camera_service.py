@@ -1,6 +1,9 @@
+import logging
 from datetime import datetime, timezone
 from app.extensions import db
 from app.models.camera import Camera
+
+log = logging.getLogger(__name__)
 
 
 class CameraService:
@@ -10,9 +13,11 @@ class CameraService:
         if app.config['DEMO_MODE']:
             from app.services.demo.fake_cameras import FakeCameraAdapter
             self.adapter = FakeCameraAdapter()
+            log.info('CameraService: using FakeCameraAdapter (DEMO_MODE)')
         else:
             from app.services.onvif_adapter import ONVIFAdapter
             self.adapter = ONVIFAdapter()
+            log.info('CameraService: using ONVIFAdapter (production)')
 
     def get_all(self, status=None):
         query = Camera.query
@@ -97,7 +102,9 @@ class CameraService:
                     camera.snapshot_uri = result.get('snapshot_uri')
                     camera.last_seen = result.get('last_seen')
                     camera.updated_at = datetime.now(timezone.utc)
-                except Exception:
+                except Exception as exc:
+                    log.error('poll_all: error probing camera id=%d name=%s ip=%s: %s',
+                              camera.id, camera.name, camera.ip_address, exc, exc_info=True)
                     camera.is_active = False
                     camera.updated_at = datetime.now(timezone.utc)
             db.session.commit()

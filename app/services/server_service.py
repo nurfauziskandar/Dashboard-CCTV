@@ -1,6 +1,9 @@
+import logging
 from datetime import datetime, timezone
 from app.extensions import db
 from app.models.server import Server, HDD, PSU
+
+log = logging.getLogger(__name__)
 
 
 class ServerService:
@@ -10,9 +13,11 @@ class ServerService:
         if app.config['DEMO_MODE']:
             from app.services.demo.fake_hardware import FakeHardwareMonitor
             self.monitor = FakeHardwareMonitor()
+            log.info('ServerService: using FakeHardwareMonitor (DEMO_MODE)')
         else:
             from app.services.hardware_monitor import HardwareMonitor
             self.monitor = HardwareMonitor()
+            log.info('ServerService: using HardwareMonitor (production)')
 
     def get_all(self):
         return Server.query.order_by(Server.name).all()
@@ -21,18 +26,23 @@ class ServerService:
         return db.session.get(Server, server_id)
 
     def create(self, data):
+        log.info('Creating server: name=%s ip=%s type=%s idrac_ip=%s',
+                 data.get('name'), data.get('ip_address'),
+                 data.get('server_type'), data.get('idrac_ip'))
         server = Server(
             name=data['name'],
             ip_address=data['ip_address'],
             description=data.get('description'),
             server_type=data.get('server_type', 'vxstorage'),
             idrac_ip=data.get('idrac_ip'),
+            idrac_port=int(data['idrac_port']) if data.get('idrac_port') else 443,
             idrac_username=data.get('idrac_username'),
             idrac_password=data.get('idrac_password'),
             snmp_community=data.get('snmp_community', 'public'),
         )
         db.session.add(server)
         db.session.commit()
+        log.info('Server saved to DB with id=%d, running initial refresh...', server.id)
         self._refresh_server(server)
         return server
 
@@ -47,12 +57,17 @@ class ServerService:
     def refresh_one(self, server_id):
         server = db.session.get(Server, server_id)
         if not server:
+            log.warning('refresh_one: server id=%d not found', server_id)
             return None
+        log.info('Refreshing server id=%d name=%s', server.id, server.name)
         self._refresh_server(server)
         return server
 
     def _refresh_server(self, server):
+        log.debug('_refresh_server: id=%d ip=%s type=%s', server.id, server.ip_address, server.server_type)
         health = self.monitor.get_server_health(server)
+        log.debug('_refresh_server: health result is_online=%s health_rollup=%s',
+                  health.get('is_online'), health.get('health_rollup'))
         server.system_model = health.get('system_model') or server.system_model
         server.serial_number = health.get('serial_number') or server.serial_number
         server.power_state = health.get('power_state')
@@ -115,10 +130,13 @@ class ServerService:
     def poll_all(self):
         with self.app.app_context():
             servers = Server.query.all()
+            log.debug('poll_all: polling %d server(s)', len(servers))
             for server in servers:
                 try:
                     self._refresh_server(server)
-                except Exception:
+                except Exception as exc:
+                    log.error('poll_all: error refreshing server id=%d name=%s: %s',
+                              server.id, server.name, exc, exc_info=True)
                     server.is_online = False
                     server.last_checked = datetime.now(timezone.utc)
             db.session.commit()

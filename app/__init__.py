@@ -1,6 +1,48 @@
 import os
+import logging
+from logging.handlers import RotatingFileHandler
 from flask import Flask
 from config import config_map
+
+
+def _setup_logging(app):
+    logs_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
+
+    fmt = logging.Formatter(
+        '[%(asctime)s] %(levelname)-8s %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
+
+    # Rotating file handler — 5 MB per file, keep 5 backups
+    file_handler = RotatingFileHandler(
+        os.path.join(logs_dir, 'app.log'),
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
+        encoding='utf-8',
+    )
+    file_handler.setFormatter(fmt)
+    file_handler.setLevel(logging.DEBUG)
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(fmt)
+    console_handler.setLevel(logging.DEBUG if app.config.get('DEBUG') else logging.INFO)
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    if not root.handlers:
+        root.addHandler(file_handler)
+        root.addHandler(console_handler)
+    else:
+        # App already has handlers (e.g. reloader), just add file handler
+        root.addHandler(file_handler)
+
+    app.logger.info(
+        'Dashboard-CCTV starting — env=%s DEMO_MODE=%s',
+        app.config.get('ENV', 'unknown'),
+        app.config.get('DEMO_MODE'),
+    )
 
 
 def create_app(config_name=None):
@@ -11,6 +53,7 @@ def create_app(config_name=None):
     app.config.from_object(config_map.get(config_name, config_map['default']))
 
     os.makedirs(app.instance_path, exist_ok=True)
+    _setup_logging(app)
 
     # Init extensions
     from app.extensions import db, scheduler

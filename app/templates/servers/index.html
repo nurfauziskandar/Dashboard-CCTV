@@ -173,9 +173,13 @@
                                 <i class="fa-solid fa-network-wired me-1"></i>Dell iDRAC Connection
                             </div>
                         </div>
-                        <div class="col-sm-4 idrac-fields">
+                        <div class="col-sm-3 idrac-fields">
                             <label class="form-label">iDRAC IP</label>
                             <input type="text" class="form-control" name="idrac_ip" placeholder="192.168.1.110">
+                        </div>
+                        <div class="col-sm-1 idrac-fields">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" name="idrac_port" value="443" min="1" max="65535">
                         </div>
                         <div class="col-sm-4 idrac-fields">
                             <label class="form-label">iDRAC Username</label>

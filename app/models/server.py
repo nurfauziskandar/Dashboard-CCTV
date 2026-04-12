@@ -17,6 +17,7 @@ class Server(db.Model):
 
     # iDRAC connection (for VxStorage Dell servers)
     idrac_ip = db.Column(db.String(45))
+    idrac_port = db.Column(db.Integer, default=443)
     idrac_username = db.Column(db.String(80))
     idrac_password = db.Column(db.String(255))
 

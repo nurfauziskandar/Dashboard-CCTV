@@ -19,6 +19,7 @@ def add():
         'description': request.form.get('description'),
         'server_type': request.form.get('server_type', 'vxstorage'),
         'idrac_ip': request.form.get('idrac_ip'),
+        'idrac_port': request.form.get('idrac_port', '443'),
         'idrac_username': request.form.get('idrac_username'),
         'idrac_password': request.form.get('idrac_password'),
         'snmp_community': request.form.get('snmp_community', 'public'),

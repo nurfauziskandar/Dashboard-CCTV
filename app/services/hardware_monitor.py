@@ -1,7 +1,10 @@
+import logging
 import urllib3
 from datetime import datetime, timezone
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+log = logging.getLogger(__name__)
 
 
 class HardwareMonitor:
@@ -31,21 +34,36 @@ class HardwareMonitor:
     def _idrac_get(self, server, path):
         import requests
         idrac_ip = server.idrac_ip or server.ip_address
+        idrac_port = server.idrac_port or 443
         username = server.idrac_username or 'root'
         password = server.idrac_password or 'calvin'
-        url = f'https://{idrac_ip}{path}'
-        resp = requests.get(
-            url,
-            auth=(username, password),
-            verify=False,
-            timeout=15,
-            headers={'Content-Type': 'application/json'},
-        )
-        resp.raise_for_status()
-        return resp.json()
+        url = f'https://{idrac_ip}:{idrac_port}{path}'
+        log.debug('iDRAC GET %s (user=%s)', url, username)
+        try:
+            resp = requests.get(
+                url,
+                auth=(username, password),
+                verify=False,
+                timeout=15,
+                headers={'Content-Type': 'application/json'},
+            )
+            log.debug('iDRAC GET %s -> HTTP %d', url, resp.status_code)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.ConnectionError as exc:
+            log.error('iDRAC connection failed to %s: %s', idrac_ip, exc)
+            raise
+        except requests.exceptions.Timeout:
+            log.error('iDRAC request timed out: %s', url)
+            raise
+        except requests.exceptions.HTTPError as exc:
+            log.error('iDRAC HTTP error %s %s: %s', url, exc.response.status_code, exc)
+            raise
 
     def _get_idrac_health(self, server):
         now = datetime.now(timezone.utc)
+        log.info('Fetching iDRAC health: server=%s ip=%s idrac_ip=%s',
+                 server.name, server.ip_address, server.idrac_ip or server.ip_address)
         try:
             system = self._idrac_get(
                 server, '/redfish/v1/Systems/System.Embedded.1'
@@ -66,7 +84,7 @@ class HardwareMonitor:
                 elif 'exhaust' in name:
                     exhaust_temp = float(reading)
 
-            return {
+            result = {
                 'is_online': True,
                 'system_model': system.get('Model'),
                 'serial_number': system.get('SerialNumber'),
@@ -78,7 +96,13 @@ class HardwareMonitor:
                 'memory_usage': None,
                 'last_checked': now,
             }
-        except Exception:
+            log.info('iDRAC health OK: server=%s model=%s health=%s',
+                     server.name, result['system_model'], result['health_rollup'])
+            return result
+        except Exception as exc:
+            log.error('iDRAC health FAILED: server=%s ip=%s — %s: %s',
+                      server.name, server.idrac_ip or server.ip_address,
+                      type(exc).__name__, exc)
             return {
                 'is_online': False,
                 'system_model': None,
@@ -94,6 +118,7 @@ class HardwareMonitor:
 
     def _get_idrac_disks(self, server):
         disks = []
+        log.info('Fetching iDRAC disks: server=%s', server.name)
         try:
             storage = self._idrac_get(
                 server, '/redfish/v1/Systems/System.Embedded.1/Storage'
@@ -127,12 +152,15 @@ class HardwareMonitor:
                         'pending_sectors': 0,
                         'last_checked': datetime.now(timezone.utc),
                     })
-        except Exception:
-            pass
+        except Exception as exc:
+            log.error('iDRAC disks FAILED: server=%s — %s: %s',
+                      server.name, type(exc).__name__, exc)
+        log.info('iDRAC disks: found %d drive(s) for server=%s', len(disks), server.name)
         return disks
 
     def _get_idrac_psus(self, server):
         psus = []
+        log.info('Fetching iDRAC PSUs: server=%s', server.name)
         try:
             power = self._idrac_get(
                 server, '/redfish/v1/Chassis/System.Embedded.1/Power'
@@ -145,8 +173,10 @@ class HardwareMonitor:
                     'power_watts': p.get('PowerInputWatts'),
                     'capacity_watts': p.get('PowerCapacityWatts'),
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            log.error('iDRAC PSUs FAILED: server=%s — %s: %s',
+                      server.name, type(exc).__name__, exc)
+        log.info('iDRAC PSUs: found %d PSU(s) for server=%s', len(psus), server.name)
         return psus
 
     # --- SNMP (Endura NSM5200) ---
