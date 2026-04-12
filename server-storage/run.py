@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Pelco Server Storage Simulator.
 
 Runs three services:
