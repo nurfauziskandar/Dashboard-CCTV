@@ -293,19 +293,39 @@ git clone https://github.com/nurfauziskandar/Dashboard-CCTV.git
 cd Dashboard-CCTV
 ```
 
-### 2. Buat Virtual Environment
+### 2. Install Python
+
+Pastikan Python 3.10+ sudah terinstall:
+
+- **Windows**: Download dari [python.org](https://www.python.org/downloads/), centang **"Add Python to PATH"** saat instalasi
+- **Linux (Debian/Ubuntu)**: `sudo apt install python3 python3-pip`
+- **macOS**: `brew install python` atau download dari [python.org](https://www.python.org/downloads/)
+
+Verifikasi:
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate   # Linux/macOS
-# venv\Scripts\activate    # Windows
+python --version        # Windows
+python3 --version       # Linux / macOS
 ```
 
 ### 3. Install Dependencies
 
-```bash
+**Windows (Command Prompt / PowerShell):**
+
+```cmd
 pip install -r requirements.txt
 ```
+
+**Linux / macOS:**
+
+```bash
+pip3 install -r requirements.txt
+```
+
+> Jika muncul error permission di Linux/macOS, tambahkan flag `--user`:
+> ```bash
+> pip3 install --user -r requirements.txt
+> ```
 
 ---
 
@@ -328,12 +348,21 @@ FERNET_KEY=ganti-dengan-fernet-key
 
 ### Generate Secret Key dan Fernet Key
 
+**Linux / macOS:**
+
 ```bash
 # Secret Key
 python3 -c "import secrets; print(secrets.token_hex(32))"
 
 # Fernet Key (untuk enkripsi password ONVIF di database)
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+**Windows (Command Prompt / PowerShell):**
+
+```cmd
+python -c "import secrets; print(secrets.token_hex(32))"
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 ### Konfigurasi Tambahan di `config.py`
@@ -361,19 +390,62 @@ DEFAULT_MAP_CENTER = [-6.9175, 107.6191]
 
 ### Mode Demo (Development)
 
+Otomatis terisi 12 kamera demo + 3 server demo. Buka http://localhost:5000.
+
+**Linux / macOS:**
+
 ```bash
 python3 run.py
 ```
 
-Buka http://localhost:5000 -- otomatis terisi 12 kamera demo + 3 server demo.
+**Windows (Command Prompt):**
+
+```cmd
+python run.py
+```
+
+**Windows (PowerShell):**
+
+```powershell
+python run.py
+```
+
+---
 
 ### Mode Production
+
+Pada mode production, dashboard dimulai kosong. Tambahkan kamera dan server melalui UI.
+
+**Linux / macOS:**
 
 ```bash
 FLASK_ENV=production python3 run.py
 ```
 
-Pada mode production, dashboard dimulai kosong. Tambahkan kamera dan server melalui UI.
+**Windows (Command Prompt):**
+
+```cmd
+set FLASK_ENV=production
+python run.py
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$env:FLASK_ENV="production"
+python run.py
+```
+
+**Windows — cara praktis, buat file `run_production.bat` di root project:**
+
+```bat
+@echo off
+set FLASK_ENV=production
+python run.py
+pause
+```
+
+Lalu double-click `run_production.bat` untuk menjalankan.
 
 ---
 
