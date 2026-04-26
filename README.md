@@ -6,7 +6,9 @@ Aplikasi dashboard monitoring CCTV berbasis Flask untuk mengintegrasikan sistem 
 
 ## Daftar Isi
 
+- [Default Credentials](#default-credentials)
 - [Arsitektur Sistem](#arsitektur-sistem)
+- [Integrasi Dashboard ↔ Server-Storage](#integrasi-dashboard--server-storage)
 - [Protokol dan Port](#protokol-dan-port)
 - [Persyaratan](#persyaratan)
 - [Instalasi](#instalasi)
@@ -27,6 +29,63 @@ Aplikasi dashboard monitoring CCTV berbasis Flask untuk mengintegrasikan sistem 
 - [Troubleshooting](#troubleshooting)
 - [API Endpoints](#api-endpoints)
 - [Struktur Database](#struktur-database)
+
+---
+
+## Default Credentials
+
+> **PENTING:** Ganti semua default ini sebelum production.
+
+### Dashboard CCTV (port 5000)
+
+| Field | Default | Env Var |
+|-------|---------|---------|
+| Username | `admin` | `ADMIN_USERNAME` |
+| Password | `admin123` | `ADMIN_PASSWORD` (atau `ADMIN_PASSWORD_HASH`) |
+
+Login URL: `http://<host>:5000/login`
+
+### Server-Storage Management UI (port 8080)
+
+| Field | Default | Env Var |
+|-------|---------|---------|
+| Username | `admin` | `ADMIN_USERNAME` |
+| Password | `storage123` | `ADMIN_PASSWORD` (atau `ADMIN_PASSWORD_HASH`) |
+
+Login URL: `http://<storage-host>:8080/login`
+
+### Integration API Token (Dashboard → Storage)
+
+Kedua aplikasi harus pakai token yang sama:
+
+```bash
+# Generate token (sekali)
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+
+# Set di kedua aplikasi
+export STORAGE_API_TOKEN='<generated-token>'
+```
+
+Default placeholder (HARUS diganti):
+`change-me-storage-api-token-min-32-chars-long-please`
+
+### URL Signing Secret (server-storage MP4 serve)
+
+```bash
+export URL_SIGNING_SECRET='<random-48-chars>'
+```
+
+Signed URL TTL default: 300 detik (5 menit), set via `SIGNED_URL_TTL_SECONDS`.
+
+### Generate Password Hash (production)
+
+Hindari plaintext password di env. Generate hash dulu:
+
+```bash
+python3 -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('your-strong-password'))"
+```
+
+Lalu set `ADMIN_PASSWORD_HASH=<hash>` (override `ADMIN_PASSWORD`).
 
 ---
 
@@ -125,6 +184,84 @@ flowchart LR
     F & H --> T3
     G --> T4
 ```
+
+---
+
+## Integrasi Dashboard ↔ Server-Storage
+
+Dashboard dan Server-Storage berjalan **terpisah** (host beda boleh). Pola integrasi:
+
+```
+┌────────────────┐                    ┌──────────────────────┐
+│  Dashboard     │  Live: direct RTSP │   Kamera CCTV        │
+│  (host A)      │ ──────────────────►│   (RTSP stream)      │
+│                │                    │                      │
+│                │  Recorder: RTSP    │                      │
+│                │ ◄──────── direct ──┤                      │
+└──────┬─────────┘                    └──────────────────────┘
+       │ Auto-register (POST /api/cameras)
+       │ Playback list (GET /api/recordings/<cam>)
+       ▼
+┌────────────────────┐                ┌──────────────────────┐
+│  Server-Storage    │  Record RTSP   │   Kamera CCTV        │
+│  (host B)          │ ◄──────────────┤   (sama dgn atas)    │
+│  - REST API        │                │                      │
+│  - MP4 store       │                │                      │
+│  - Signed URL      │                │                      │
+└────────────────────┘                └──────────────────────┘
+```
+
+### Cara kerja
+
+1. **Live view** — Dashboard buka stream RTSP langsung ke kamera (low latency, ~0 ms tambahan).
+2. **Auto-register** — Saat tambah kamera di dashboard, dashboard panggil `POST {STORAGE_URL}/api/cameras` dengan body `{name, rtsp_uri}`. Server-storage mulai recording.
+3. **Playback** — Dashboard panggil `GET {STORAGE_URL}/api/recordings/<camera_name>`. Server-storage balas list MP4 + signed URL per file (HMAC-SHA256, expires 5 menit). Browser fetch MP4 langsung dari server-storage pakai signed URL (no proxy, hemat bandwidth dashboard).
+
+### Setup Integrasi
+
+**Server-storage (host B):**
+
+```bash
+export ADMIN_USERNAME='admin'
+export ADMIN_PASSWORD='ganti-password-storage'
+export STORAGE_API_TOKEN='<token-yang-sama-dengan-dashboard>'
+export URL_SIGNING_SECRET='<secret-random-48-chars>'
+
+cd server-storage
+python3 run.py
+# → http://<host-B>:8080
+```
+
+**Dashboard (host A):**
+
+```bash
+export ADMIN_USERNAME='admin'
+export ADMIN_PASSWORD='ganti-password-dashboard'
+export STORAGE_URL='http://<host-B>:8080'
+export STORAGE_API_TOKEN='<token-yang-sama-dengan-server-storage>'
+
+FLASK_ENV=production python3 run.py
+# → http://<host-A>:5000
+```
+
+### REST API (Server-Storage)
+
+Semua endpoint butuh `X-API-Token: <token>` atau `Authorization: Bearer <token>`.
+
+| Method | Path | Body / Response |
+|--------|------|-----------------|
+| `GET`  | `/api/health` | `{"status": "ok"}` (no auth) |
+| `GET`  | `/api/cameras` | `{"cameras": [...]}` |
+| `POST` | `/api/cameras` | Body: `{"name", "rtsp_uri"}` |
+| `DELETE` | `/api/cameras/<name>` | — |
+| `GET`  | `/api/recordings/<camera_name>` | `{"camera", "files": [{name, size_mb, modified, url}]}` |
+| `GET`  | `/api/recordings/<cam>/<file>?expires=<ts>&sig=<hex>` | MP4 stream (range support) — signed URL only, no token |
+
+### Disable Storage Integration
+
+Kalau `STORAGE_URL` tidak di-set, dashboard pakai mode standalone:
+- Auto-register di-skip
+- Tombol "Playback" tetap ada tapi flash warning kalau diklik
 
 ---
 

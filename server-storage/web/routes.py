@@ -4,11 +4,14 @@ import os
 from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app, send_file, abort
 
+from web.auth import login_required
+
 bp = Blueprint('web', __name__, url_prefix='/',
                template_folder='templates', static_folder='static')
 
 
 @bp.route('/')
+@login_required
 def index():
     hw = current_app.config['hw_monitor']
     rec_manager = current_app.config['rec_manager']
@@ -39,6 +42,7 @@ def index():
 
 
 @bp.route('/cameras/add', methods=['POST'])
+@login_required
 def add_camera():
     rec_manager = current_app.config['rec_manager']
     name = request.form.get('name', '').strip()
@@ -54,6 +58,7 @@ def add_camera():
 
 
 @bp.route('/cameras/<name>/remove', methods=['POST'])
+@login_required
 def remove_camera(name):
     rec_manager = current_app.config['rec_manager']
     rec_manager.remove_camera(name)
@@ -62,6 +67,7 @@ def remove_camera(name):
 
 
 @bp.route('/retention', methods=['POST'])
+@login_required
 def update_retention():
     rec_manager = current_app.config['rec_manager']
     retention_days = request.form.get('retention_days')
@@ -82,6 +88,7 @@ def update_retention():
 # --- Recordings / Playback ---
 
 @bp.route('/recordings')
+@login_required
 def recordings():
     config = current_app.config['APP_CONFIG']
     rec_dir = config.RECORDINGS_DIR
@@ -110,6 +117,7 @@ def recordings():
 
 
 @bp.route('/playback/<path:camera_name>')
+@login_required
 def playback(camera_name):
     config = current_app.config['APP_CONFIG']
     cam_dir = os.path.join(config.RECORDINGS_DIR, camera_name)
@@ -134,6 +142,7 @@ def playback(camera_name):
 
 
 @bp.route('/recordings/<path:camera_name>/<filename>')
+@login_required
 def serve_recording(camera_name, filename):
     config = current_app.config['APP_CONFIG']
     # Prevent path traversal
@@ -152,6 +161,7 @@ def serve_recording(camera_name, filename):
 # --- JSON API ---
 
 @bp.route('/api/status')
+@login_required
 def api_status():
     hw = current_app.config['hw_monitor']
     rec_manager = current_app.config['rec_manager']

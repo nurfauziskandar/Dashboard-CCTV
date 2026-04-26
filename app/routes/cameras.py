@@ -77,6 +77,35 @@ def detail(camera_id):
     return render_template('cameras/detail.html', camera=camera, config=current_app.config)
 
 
+@bp.route('/<int:camera_id>/playback')
+def playback(camera_id):
+    camera_service = current_app.config['camera_service']
+    storage_client = current_app.config.get('storage_client')
+    camera = camera_service.get_by_id(camera_id)
+    if not camera:
+        flash('Camera not found.', 'danger')
+        return redirect(url_for('cameras.index'))
+
+    if not storage_client or not storage_client.enabled:
+        flash('Storage backend belum dikonfigurasi (set STORAGE_URL).', 'warning')
+        return redirect(url_for('cameras.detail', camera_id=camera_id))
+
+    files = storage_client.list_recordings(camera.name)
+    selected = request.args.get('file')
+    if not selected and files:
+        selected = files[0]['name']
+    selected_file = next((f for f in files if f['name'] == selected), None)
+
+    return render_template(
+        'cameras/playback.html',
+        camera=camera,
+        files=files,
+        selected_file=selected_file,
+        storage_online=storage_client.health(),
+        config=current_app.config,
+    )
+
+
 @bp.route('/<int:camera_id>/delete', methods=['POST'])
 def delete(camera_id):
     camera_service = current_app.config['camera_service']

@@ -135,6 +135,11 @@
                 <button class="btn btn-sm btn-gear" data-bs-toggle="modal" data-bs-target="#settingsModal" title="Settings">
                     <i class="fa-solid fa-gear" style="font-size: 1.1rem;"></i>
                 </button>
+                <form method="POST" action="{{ url_for('auth.logout') }}" class="d-inline m-0">
+                    <button type="submit" class="btn btn-sm btn-gear" title="Logout">
+                        <i class="fa-solid fa-right-from-bracket" style="font-size: 1.05rem;"></i>
+                    </button>
+                </form>
             </div>
         </div>
     </nav>

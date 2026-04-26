@@ -1,7 +1,8 @@
 import os
 import logging
+from datetime import timedelta
 from logging.handlers import RotatingFileHandler
-from flask import Flask
+from flask import Flask, session, redirect, url_for, request
 from config import config_map
 
 
@@ -53,8 +54,24 @@ def create_app(config_name=None):
     app.config.from_object(config_map.get(config_name, config_map['default']))
     app.config['_ENV_NAME'] = config_name
 
+    # Session security
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
+
     os.makedirs(app.instance_path, exist_ok=True)
     _setup_logging(app)
+
+    # Global login guard
+    _PUBLIC_ENDPOINTS = {'auth.login', 'auth.logout', 'static'}
+
+    @app.before_request
+    def _require_login():
+        if request.endpoint in _PUBLIC_ENDPOINTS or request.endpoint is None:
+            return None
+        if not session.get('user'):
+            return redirect(url_for('auth.login', next=request.path))
+        return None
 
     # Init extensions
     from app.extensions import db, scheduler
@@ -84,9 +101,18 @@ def create_app(config_name=None):
             from app.services.stream_service import StreamService
             stream_service = StreamService()
 
+        from app.services.storage_client import StorageClient
+        storage_client = StorageClient(
+            base_url=app.config.get('STORAGE_URL', ''),
+            api_token=app.config.get('STORAGE_API_TOKEN', ''),
+            timeout=app.config.get('STORAGE_TIMEOUT', 5),
+        )
+
         app.config['camera_service'] = camera_service
         app.config['server_service'] = server_service
         app.config['stream_service'] = stream_service
+        app.config['storage_client'] = storage_client
+        camera_service.storage_client = storage_client
 
         # Seed demo data if in demo mode and DB is empty
         if app.config['DEMO_MODE']:

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}Playback - {{ camera.name }}{% endblock %}
+{% block page_title %}Playback - {{ camera.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+    <a href="{{ url_for('cameras.detail', camera_id=camera.id) }}"
+       style="color: var(--text-secondary); font-size: 0.85rem; text-decoration: none;">
+        <i class="fa-solid fa-arrow-left me-1"></i> Detail Kamera
+    </a>
+    <span style="color: var(--border-color);">/</span>
+    <span style="font-weight: 600;">Playback</span>
+    <span class="ms-auto">
+        {% if storage_online %}
+        <span class="badge" style="background: rgba(46,204,113,0.15); color: #2ecc71;">
+            <i class="fa-solid fa-circle me-1" style="font-size: 0.5rem;"></i> Storage Online
+        </span>
+        {% else %}
+        <span class="badge" style="background: rgba(231,76,60,0.15); color: #e74c3c;">
+            <i class="fa-solid fa-circle me-1" style="font-size: 0.5rem;"></i> Storage Offline
+        </span>
+        {% endif %}
+    </span>
+</div>
+
+<div class="row g-3">
+    <!-- Video Player -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="fa-solid fa-play-circle me-2"></i>
+                    <span id="playerTitle">{{ selected_file.name if selected_file else 'Pilih rekaman' }}</span>
+                </span>
+                <span id="playerMeta" style="font-size: 0.75rem; color: var(--text-secondary);">
+                    {% if selected_file %}{{ selected_file.size_mb }} MB{% endif %}
+                </span>
+            </div>
+            <div class="card-body p-0" style="background: #000;" id="playerContainer">
+                {% if selected_file %}
+                <video id="videoPlayer" controls
+                       style="width: 100%; max-height: 540px; display: block;"
+                       src="{{ selected_file.url }}">
+                    Browser tidak mendukung HTML5 video.
+                </video>
+                {% else %}
+                <div style="height: 320px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary);">
+                    <div class="text-center">
+                        <i class="fa-solid fa-film" style="font-size: 2rem;"></i>
+                        <p class="mt-2 mb-0">
+                            {% if not files %}Belum ada rekaman tersedia.{% else %}Pilih rekaman dari daftar.{% endif %}
+                        </p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Segment List -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-list me-2"></i>Segmen Rekaman
+                <span class="badge ms-1"
+                      style="background: var(--bg-input); color: var(--text-secondary); font-size: 0.7rem;">
+                    {{ files | length }}
+                </span>
+            </div>
+            <div class="card-body p-0" style="max-height: 560px; overflow-y: auto;">
+                {% if not files %}
+                <div class="text-center py-4" style="color: var(--text-secondary); font-size: 0.85rem;">
+                    Tidak ada rekaman.
+                </div>
+                {% else %}
+                <div class="list-group list-group-flush">
+                    {% for f in files %}
+                    <a href="#" class="list-group-item list-group-item-action segment-item"
+                       data-src="{{ f.url }}"
+                       data-name="{{ f.name }}"
+                       data-size="{{ f.size_mb }}"
+                       style="background: {% if selected_file and f.name == selected_file.name %}var(--bg-input){% else %}transparent{% endif %};
+                              border-color: var(--border-color); padding: 10px 16px;">
+                        <div style="font-size: 0.78rem; font-family: monospace;
+                                    color: {% if selected_file and f.name == selected_file.name %}var(--accent){% else %}var(--text-primary){% endif %};
+                                    margin-bottom: 2px; word-break: break-all;">
+                            {{ f.name }}
+                        </div>
+                        <div style="font-size: 0.72rem; color: var(--text-secondary);">
+                            {{ f.modified[:19] if f.modified else '' }} &middot; {{ f.size_mb }} MB
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var player = document.getElementById('videoPlayer');
+    var title = document.getElementById('playerTitle');
+    var meta = document.getElementById('playerMeta');
+    var items = document.querySelectorAll('.segment-item');
+
+    items.forEach(function (item) {
+        item.addEventListener('click', function (e) {
+            e.preventDefault();
+
+            var src = this.dataset.src;
+            var name = this.dataset.name;
+            var size = this.dataset.size;
+
+            if (!player) {
+                var container = document.getElementById('playerContainer');
+                player = document.createElement('video');
+                player.id = 'videoPlayer';
+                player.controls = true;
+                player.style.cssText = 'width: 100%; max-height: 540px; display: block;';
+                container.innerHTML = '';
+                container.appendChild(player);
+            }
+
+            player.src = src;
+            player.load();
+            player.play();
+
+            title.textContent = name;
+            meta.textContent = size + ' MB';
+
+            items.forEach(function (i) {
+                i.style.background = 'transparent';
+                var label = i.querySelector('div');
+                if (label) label.style.color = 'var(--text-primary)';
+            });
+            this.style.background = 'var(--bg-input)';
+            var label = this.querySelector('div');
+            if (label) label.style.color = 'var(--accent)';
+        });
+    });
+});
+</script>
+{% endblock %}

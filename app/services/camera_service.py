@@ -10,6 +10,7 @@ class CameraService:
 
     def __init__(self, app):
         self.app = app
+        self.storage_client = None  # injected by app factory
         if app.config['DEMO_MODE']:
             from app.services.demo.fake_cameras import FakeCameraAdapter
             self.adapter = FakeCameraAdapter()
@@ -63,13 +64,25 @@ class CameraService:
 
         db.session.add(camera)
         db.session.commit()
+
+        # Auto-register to storage backend (best-effort, non-blocking failure)
+        if self.storage_client and self.storage_client.enabled and camera.stream_uri:
+            ok = self.storage_client.register_camera(camera.name, camera.stream_uri)
+            if ok:
+                log.info('Camera %s registered to storage', camera.name)
+            else:
+                log.warning('Camera %s storage register failed', camera.name)
+
         return camera
 
     def delete(self, camera_id):
         camera = db.session.get(Camera, camera_id)
         if camera:
+            name = camera.name
             db.session.delete(camera)
             db.session.commit()
+            if self.storage_client and self.storage_client.enabled:
+                self.storage_client.unregister_camera(name)
             return True
         return False
 

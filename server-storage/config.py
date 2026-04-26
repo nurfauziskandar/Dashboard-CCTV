@@ -127,3 +127,24 @@ class Config:
     RETENTION_FILE = os.environ.get(
         'RETENTION_FILE', os.path.join(BASE_DIR, 'retention.json')
     )
+
+    # --- Auth (Web UI session login) ---
+    ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+    # Plaintext default password (hashed at runtime). In production set
+    # ADMIN_PASSWORD_HASH directly via env to avoid plaintext on disk.
+    ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'storage123')
+    ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH')
+
+    # --- API Token (Dashboard ↔ Storage) ---
+    # Static bearer token. Both dashboard and storage must share the same value.
+    API_TOKEN = os.environ.get(
+        'STORAGE_API_TOKEN',
+        'change-me-storage-api-token-min-32-chars-long-please',
+    )
+
+    # --- Signed URL secret (HMAC-SHA256) ---
+    URL_SIGNING_SECRET = os.environ.get(
+        'URL_SIGNING_SECRET',
+        'change-me-url-signing-secret-min-32-chars-long-please',
+    )
+    SIGNED_URL_TTL_SECONDS = int(os.environ.get('SIGNED_URL_TTL_SECONDS', 300))

@@ -19,6 +19,7 @@ import os
 import ssl
 import logging
 import threading
+from datetime import timedelta
 
 from flask import Flask
 from config import Config
@@ -42,6 +43,11 @@ def create_app(config=None):
     app.secret_key = config.SECRET_KEY
     app.config['APP_CONFIG'] = config
 
+    # Session security
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
+
     # Ensure recordings directory exists
     os.makedirs(config.RECORDINGS_DIR, exist_ok=True)
 
@@ -57,7 +63,11 @@ def create_app(config=None):
 
     # Register blueprints
     from web.routes import bp as web_bp
+    from web.auth import bp as auth_bp
+    from web.api import bp as api_bp
     from emulator.redfish import bp as redfish_bp
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(api_bp)
     app.register_blueprint(web_bp)
     app.register_blueprint(redfish_bp)
 

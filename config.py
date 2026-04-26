@@ -15,6 +15,21 @@ class BaseConfig:
     DEFAULT_MAP_CENTER = [-6.2088, 106.8456]
     DEFAULT_MAP_ZOOM = 12
 
+    # --- Auth (Web UI session login) ---
+    ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+    ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
+    ADMIN_PASSWORD_HASH = os.environ.get('ADMIN_PASSWORD_HASH')
+
+    # --- Storage backend (server-storage REST API) ---
+    # When set, dashboard auto-registers cameras to this storage and fetches
+    # playback recordings from it. Leave blank to disable storage integration.
+    STORAGE_URL = os.environ.get('STORAGE_URL', '')
+    STORAGE_API_TOKEN = os.environ.get(
+        'STORAGE_API_TOKEN',
+        'change-me-storage-api-token-min-32-chars-long-please',
+    )
+    STORAGE_TIMEOUT = int(os.environ.get('STORAGE_TIMEOUT', 5))
+
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True

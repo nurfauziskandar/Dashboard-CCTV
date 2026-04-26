@@ -4,6 +4,9 @@
 {% block page_title %}Camera Detail{% endblock %}
 
 {% block topbar_actions %}
+<a href="{{ url_for('cameras.playback', camera_id=camera.id) }}" class="btn btn-ghost btn-sm">
+    <i class="fa-solid fa-clock-rotate-left me-1"></i> Playback
+</a>
 <button class="btn btn-ghost btn-sm" id="btnRefresh">
     <i class="fa-solid fa-rotate me-1"></i> Refresh
 </button>
