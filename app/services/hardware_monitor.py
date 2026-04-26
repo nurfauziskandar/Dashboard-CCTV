@@ -134,6 +134,7 @@ class HardwareMonitor:
                         continue
                     d = self._idrac_get(server, drive_path)
                     cap_bytes = d.get('CapacityBytes')
+                    used_bytes = d.get('CapacityUsedBytes')
                     disks.append({
                         'device_name': d.get('Name', d.get('Id', 'Unknown')),
                         'slot': d.get('Id'),
@@ -142,7 +143,7 @@ class HardwareMonitor:
                         'media_type': d.get('MediaType'),
                         'protocol': d.get('Protocol'),
                         'capacity_gb': round(cap_bytes / 1e9, 1) if cap_bytes else None,
-                        'used_gb': None,
+                        'used_gb': round(used_bytes / 1e9, 1) if used_bytes is not None else None,
                         'temperature_c': None,
                         'health_status': d.get('Status', {}).get('Health', 'Unknown'),
                         'state': d.get('Status', {}).get('State'),

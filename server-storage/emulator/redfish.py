@@ -212,6 +212,7 @@ def drive_detail(drive_id):
             'MediaType': d['media_type'],
             'Protocol': d['protocol'],
             'CapacityBytes': int(d['capacity_gb'] * 1e9) if d['capacity_gb'] else 0,
+            'CapacityUsedBytes': int(d['used_gb'] * 1e9) if d.get('used_gb') is not None else None,
             'BlockSizeBytes': 512,
             'RotationSpeedRPM': 7200 if d['media_type'] == 'HDD' else 0,
             'PredictedMediaLifeLeftPercent': d.get('predicted_life_left'),

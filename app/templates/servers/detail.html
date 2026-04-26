@@ -193,7 +193,6 @@
                         <th>Type</th>
                         <th>Capacity</th>
                         <th>Usage</th>
-                        <th>Temp</th>
                         <th>Health</th>
                         <th>Power On</th>
                         <th>Bad Sectors</th>
@@ -209,7 +208,11 @@
                         </td>
                         <td>
                             {% if hdd.capacity_gb %}
-                            {{ (hdd.capacity_gb / 1000)|round(1) }} TB
+                                {% if hdd.capacity_gb >= 1000 %}
+                                {{ (hdd.capacity_gb / 1000)|round(1) }} TB
+                                {% else %}
+                                {{ hdd.capacity_gb|round(1) }} GB
+                                {% endif %}
                             {% else %}--{% endif %}
                         </td>
                         <td style="min-width: 140px;">
@@ -223,13 +226,6 @@
                                 </div>
                                 <span style="font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap;">{{ hdd.usage_percent }}%</span>
                             </div>
-                            {% else %}--{% endif %}
-                        </td>
-                        <td>
-                            {% if hdd.temperature_c %}
-                            <span class="temp-display {{ hdd.temp_status }}">
-                                <i class="fa-solid fa-temperature-half me-1"></i>{{ hdd.temperature_c|round(1) }}C
-                            </span>
                             {% else %}--{% endif %}
                         </td>
                         <td>

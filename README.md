@@ -777,10 +777,54 @@ Endura NSM5200 mendukung SNMP v2c dan v3 untuk monitoring.
 |-----------|-------|--------|-------|
 | Inlet Temp (VxStorage) | < 35C | 35-42C | > 42C |
 | Exhaust Temp (VxStorage) | < 55C | 55-70C | > 70C |
-| HDD Temp | < 40C | 40-50C | > 50C |
 | Disk Health | OK | Warning | Critical |
 | Disk Usage | < 70% | 70-90% | > 90% |
 | PSU Health | OK | Warning | Critical |
+
+#### Kalkulasi Health Status Server
+
+Health status server (`OK` / `Warning` / `Critical`) dihitung dari dua sumber: **suhu** dan **penggunaan disk**. Whichever kondisi paling parah menentukan status akhir.
+
+**1. Suhu Inlet (untuk VX Storage via iDRAC/emulator):**
+
+```
+inlet_temp > 42°C  → Critical
+inlet_temp > 35°C  → Warning
+inlet_temp ≤ 35°C  → OK
+```
+
+**2. Penggunaan Disk:**
+
+Sistem iterasi semua drive. Jika ada satu drive yang melebihi threshold, status server naik:
+
+```
+(used_gb / capacity_gb) * 100 > 90%  → Critical
+(used_gb / capacity_gb) * 100 > 80%  → Warning
+(used_gb / capacity_gb) * 100 ≤ 80%  → OK
+```
+
+**Prioritas (yang paling parah menang):**
+
+```
+Critical > Warning > OK
+```
+
+Contoh: Jika suhu inlet 38°C (Warning) dan satu disk penuh 95% (Critical) → status server = **Critical**.
+
+**Sumber data per server type:**
+
+| Server Type | Sumber Suhu | Sumber Disk |
+|-------------|-------------|-------------|
+| VX Storage (iDRAC) | Redfish `/Thermal` → `ReadingCelsius` field bertanda "Inlet" | Redfish `/Storage/Drives` → `CapacityBytes` + `CapacityUsedBytes` |
+| Server-Storage Emulator | psutil sensors / Apple SMC | psutil `disk_usage` |
+| Endura NSM5200 (SNMP) | Tidak tersedia (selalu `None`) | SNMP hrStorageTable |
+
+Jika semua sumber data tidak tersedia (server offline atau gagal polling), status ditampilkan sebagai `None` dan badge tidak muncul di UI.
+
+**Kode referensi:**
+- Dashboard: [`app/services/hardware_monitor.py`](app/services/hardware_monitor.py) — `_get_idrac_health()`, `_get_idrac_disks()`
+- Server-Storage: [`server-storage/monitor/hardware.py`](server-storage/monitor/hardware.py) — `get_health_rollup()`
+- Model thresholds: [`app/models/server.py`](app/models/server.py) — `inlet_temp_status`, `exhaust_temp_status`, `temp_status` (HDD)
 
 ### 4. Environment Variables Production
 
