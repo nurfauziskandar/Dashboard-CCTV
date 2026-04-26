@@ -12,3 +12,9 @@ pysnmp>=4.4
 
 # SSL certificate generation
 cryptography>=42.0
+
+# Env file loader
+python-dotenv>=1.0
+
+# REST API auth (password hash)
+Werkzeug>=3.0

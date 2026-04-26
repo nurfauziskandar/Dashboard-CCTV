@@ -21,6 +21,9 @@ import logging
 import threading
 from datetime import timedelta
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
 from flask import Flask
 from config import Config
 
