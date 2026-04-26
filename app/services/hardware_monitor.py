@@ -84,6 +84,8 @@ class HardwareMonitor:
                 elif 'exhaust' in name:
                     exhaust_temp = float(reading)
 
+            cpu_usage = system.get('ProcessorSummary', {}).get('CpuUsagePercent')
+            memory_usage = system.get('MemorySummary', {}).get('MemoryUsagePercent')
             result = {
                 'is_online': True,
                 'system_model': system.get('Model'),
@@ -92,8 +94,8 @@ class HardwareMonitor:
                 'health_rollup': system.get('Status', {}).get('HealthRollup'),
                 'inlet_temp': inlet_temp,
                 'exhaust_temp': exhaust_temp,
-                'cpu_usage': None,
-                'memory_usage': None,
+                'cpu_usage': cpu_usage,
+                'memory_usage': memory_usage,
                 'last_checked': now,
             }
             log.info('iDRAC health OK: server=%s model=%s health=%s',

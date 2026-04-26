@@ -104,14 +104,14 @@
                     </div>
                     {% for hdd in server.hdds[:3] %}
                     <div class="d-flex align-items-center gap-2 mb-1" style="font-size: 0.75rem;">
-                        <span style="color: var(--text-muted); width: 55px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ hdd.slot or hdd.device_name }}</span>
+                        <span style="color: var(--text-muted); width: 55px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ hdd.device_name }}</span>
                         <div class="flex-grow-1">
                             <div class="health-bar">
-                                <div class="health-bar-fill {{ hdd.temp_status }}" style="width: {{ hdd.usage_percent }}%;"></div>
+                                <div class="health-bar-fill {{ 'normal' if hdd.usage_percent < 70 else ('warning' if hdd.usage_percent < 90 else 'critical') }}" style="width: {{ hdd.usage_percent }}%;"></div>
                             </div>
                         </div>
-                        <span class="temp-display {{ hdd.temp_status }}" style="font-size: 0.7rem; width: 40px; text-align: right;">
-                            {% if hdd.temperature_c %}{{ hdd.temperature_c|round(0)|int }}C{% else %}--{% endif %}
+                        <span style="font-size: 0.7rem; color: var(--text-secondary); width: 40px; text-align: right;">
+                            {{ hdd.usage_percent }}%
                         </span>
                     </div>
                     {% endfor %}

@@ -55,10 +55,12 @@ def service_root():
 @bp.route('/Systems/System.Embedded.1')
 @require_auth
 def system_info():
+    import psutil
     hw = current_app.config['hw_monitor']
     info = hw.get_system_info()
     health = hw.get_health_rollup()
     mem = hw.get_memory_info()
+    cpu_pct = round(psutil.cpu_percent(interval=0.5), 1)
 
     return jsonify({
         '@odata.id': '/redfish/v1/Systems/System.Embedded.1',
@@ -73,6 +75,7 @@ def system_info():
         'ProcessorSummary': {
             'Model': info.get('processor', 'Unknown'),
             'Count': __import__('os').cpu_count() or 1,
+            'CpuUsagePercent': cpu_pct,
         },
         'Status': {
             'State': 'Enabled',
@@ -81,6 +84,7 @@ def system_info():
         },
         'MemorySummary': {
             'TotalSystemMemoryGiB': mem['total_gb'],
+            'MemoryUsagePercent': mem['percent'],
             'Status': {'Health': 'OK'},
         },
         'Storage': {
@@ -205,9 +209,9 @@ def drive_detail(drive_id):
         return jsonify({
             '@odata.id': f'/redfish/v1/Systems/System.Embedded.1/Storage/AHCI.Slot.1-1/Drives/{drive_id}',
             '@odata.type': '#Drive.v1_9_0.Drive',
-            'Id': drive_id,
-            'Name': d['device_name'],
-            'Model': d['model'],
+            'Id': d.get('slot') or drive_id,
+            'Name': d.get('model') or d['device_name'],
+            'Model': d.get('model') or d['device_name'],
             'SerialNumber': d['serial'],
             'MediaType': d['media_type'],
             'Protocol': d['protocol'],

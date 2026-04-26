@@ -188,7 +188,7 @@
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
-                        <th>{% if server.server_type == 'vxstorage' %}Slot{% else %}Device{% endif %}</th>
+                        <th>Device</th>
                         <th>Model</th>
                         <th>Type</th>
                         <th>Capacity</th>
@@ -201,7 +201,7 @@
                 <tbody>
                     {% for hdd in server.hdds %}
                     <tr>
-                        <td class="fw-semibold">{{ hdd.slot or hdd.device_name }}</td>
+                        <td class="fw-semibold">{{ hdd.device_name }}</td>
                         <td style="color: var(--text-secondary); font-size: 0.8rem;">{{ hdd.model or '--' }}</td>
                         <td style="color: var(--text-muted); font-size: 0.8rem;">
                             {{ hdd.media_type or '' }} {{ hdd.protocol or '' }}
