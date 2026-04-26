@@ -40,7 +40,7 @@ def _setup_logging(app):
 
     app.logger.info(
         'Dashboard-CCTV starting — env=%s DEMO_MODE=%s',
-        app.config.get('ENV', 'unknown'),
+        app.config.get('_ENV_NAME', 'unknown'),
         app.config.get('DEMO_MODE'),
     )
 
@@ -51,6 +51,7 @@ def create_app(config_name=None):
 
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(config_map.get(config_name, config_map['default']))
+    app.config['_ENV_NAME'] = config_name
 
     os.makedirs(app.instance_path, exist_ok=True)
     _setup_logging(app)

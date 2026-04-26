@@ -12,6 +12,26 @@
             </div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('cameras.add') }}">
+                    <input type="hidden" name="add_mode" id="addMode" value="rtsp">
+
+                    <!-- Mode selector -->
+                    <div class="mb-4">
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="_mode_ui" id="modeRtsp" autocomplete="off" checked>
+                            <label class="btn btn-outline-secondary" for="modeRtsp" onclick="setMode('rtsp')">
+                                <i class="fa-solid fa-play me-1"></i>RTSP
+                            </label>
+                            <input type="radio" class="btn-check" name="_mode_ui" id="modeOnvif" autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="modeOnvif" onclick="setMode('onvif')">
+                                <i class="fa-solid fa-network-wired me-1"></i>ONVIF
+                            </label>
+                        </div>
+                        <div class="mt-2" style="font-size: 0.8rem; color: var(--text-secondary);">
+                            <span id="modeDesc">RTSP: set stream URI manual, tanpa auto-probe ke kamera.</span>
+                        </div>
+                    </div>
+
+                    <!-- Common fields -->
                     <div class="row g-3">
                         <div class="col-12">
                             <label class="form-label">Camera Name</label>
@@ -19,27 +39,60 @@
                                    value="{{ request.args.get('name', '') }}" required
                                    placeholder="e.g., Lobby Utama">
                         </div>
-                        <div class="col-8">
-                            <label class="form-label">IP Address</label>
-                            <input type="text" class="form-control" name="ip_address"
-                                   value="{{ request.args.get('ip', '') }}" required
-                                   placeholder="192.168.1.100">
+
+                        <!-- RTSP fields -->
+                        <div id="rtspFields">
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label">RTSP Stream URI</label>
+                                    <input type="text" class="form-control" name="stream_uri"
+                                           placeholder="rtsp://user:pass@192.168.1.100:554/Streaming/Channels/102">
+                                    <div class="form-text">Format: <code>rtsp://username:password@ip:port/path</code></div>
+                                </div>
+                                <div class="col-8">
+                                    <label class="form-label">IP Address <span class="text-secondary" style="font-size:0.8rem;">(opsional, untuk info)</span></label>
+                                    <input type="text" class="form-control" name="ip_address"
+                                           value="{{ request.args.get('ip', '') }}"
+                                           placeholder="192.168.1.100">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label">Port</label>
+                                    <input type="number" class="form-control" name="port" value="554">
+                                </div>
+                            </div>
                         </div>
-                        <div class="col-4">
-                            <label class="form-label">Port</label>
-                            <input type="number" class="form-control" name="port"
-                                   value="{{ request.args.get('port', '80') }}">
+
+                        <!-- ONVIF fields -->
+                        <div id="onvifFields" style="display:none;">
+                            <div class="row g-3">
+                                <div class="col-8">
+                                    <label class="form-label">IP Address</label>
+                                    <input type="text" class="form-control" name="onvif_ip"
+                                           value="{{ request.args.get('ip', '') }}"
+                                           placeholder="192.168.1.100">
+                                </div>
+                                <div class="col-4">
+                                    <label class="form-label">ONVIF Port</label>
+                                    <input type="number" class="form-control" name="onvif_port" value="80">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">Username</label>
+                                    <input type="text" class="form-control" name="onvif_username" placeholder="admin">
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">Password</label>
+                                    <input type="password" class="form-control" name="onvif_password" placeholder="Password">
+                                </div>
+                                <div class="col-12">
+                                    <div class="alert alert-info py-2 px-3 mb-0" style="font-size:0.8rem;">
+                                        <i class="fa-solid fa-circle-info me-1"></i>
+                                        ONVIF akan auto-detect stream URI, model, dan firmware dari kamera.
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="col-6">
-                            <label class="form-label">ONVIF Username</label>
-                            <input type="text" class="form-control" name="onvif_username"
-                                   placeholder="admin">
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label">ONVIF Password</label>
-                            <input type="password" class="form-control" name="onvif_password"
-                                   placeholder="Password">
-                        </div>
+
+                        <!-- Common metadata -->
                         <div class="col-12">
                             <label class="form-label">Manufacturer</label>
                             <select class="form-select" name="manufacturer">
@@ -53,7 +106,7 @@
                         <div class="col-12">
                             <label class="form-label">Model</label>
                             <input type="text" class="form-control" name="model"
-                                   placeholder="e.g., Sarix IMP Series">
+                                   placeholder="e.g., DS-2CD2143G2-I">
                         </div>
                         <div class="col-12">
                             <label class="form-label">Location Name</label>
@@ -108,6 +161,15 @@
 
 {% block scripts %}
 <script>
+function setMode(mode) {
+    document.getElementById('addMode').value = mode;
+    document.getElementById('rtspFields').style.display = mode === 'rtsp' ? '' : 'none';
+    document.getElementById('onvifFields').style.display = mode === 'onvif' ? '' : 'none';
+    document.getElementById('modeDesc').textContent = mode === 'rtsp'
+        ? 'RTSP: set stream URI manual, tanpa auto-probe ke kamera.'
+        : 'ONVIF: auto-probe kamera untuk stream URI, model, dan firmware.';
+}
+
 document.addEventListener('DOMContentLoaded', function () {
     var mapCenter = {{ config.DEFAULT_MAP_CENTER | tojson }};
     var mapZoom = {{ config.DEFAULT_MAP_ZOOM }};

@@ -1,6 +1,8 @@
 """Management Web UI for the Server Storage Simulator."""
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
+import os
+from datetime import datetime
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app, send_file, abort
 
 bp = Blueprint('web', __name__, url_prefix='/',
                template_folder='templates', static_folder='static')
@@ -75,6 +77,76 @@ def update_retention():
         'success',
     )
     return redirect(url_for('web.index'))
+
+
+# --- Recordings / Playback ---
+
+@bp.route('/recordings')
+def recordings():
+    config = current_app.config['APP_CONFIG']
+    rec_dir = config.RECORDINGS_DIR
+
+    cameras = {}
+    if os.path.exists(rec_dir):
+        for cam_name in sorted(os.listdir(rec_dir)):
+            cam_dir = os.path.join(rec_dir, cam_name)
+            if not os.path.isdir(cam_dir):
+                continue
+            files = []
+            for f in sorted(os.listdir(cam_dir), reverse=True):
+                fpath = os.path.join(cam_dir, f)
+                if os.path.isfile(fpath) and f.endswith('.mp4'):
+                    stat = os.stat(fpath)
+                    files.append({
+                        'name': f,
+                        'size_mb': round(stat.st_size / 1e6, 1),
+                        'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                        'mtime': stat.st_mtime,
+                    })
+            if files:
+                cameras[cam_name] = files
+
+    return render_template('recordings.html', cameras=cameras, config=config)
+
+
+@bp.route('/playback/<path:camera_name>')
+def playback(camera_name):
+    config = current_app.config['APP_CONFIG']
+    cam_dir = os.path.join(config.RECORDINGS_DIR, camera_name)
+
+    if not os.path.isdir(cam_dir):
+        abort(404)
+
+    files = []
+    for f in sorted(os.listdir(cam_dir), reverse=True):
+        fpath = os.path.join(cam_dir, f)
+        if os.path.isfile(fpath) and f.endswith('.mp4'):
+            stat = os.stat(fpath)
+            files.append({
+                'name': f,
+                'size_mb': round(stat.st_size / 1e6, 1),
+                'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+            })
+
+    selected = request.args.get('file', files[0]['name'] if files else None)
+    return render_template('playback.html', camera_name=camera_name,
+                           files=files, selected=selected, config=config)
+
+
+@bp.route('/recordings/<path:camera_name>/<filename>')
+def serve_recording(camera_name, filename):
+    config = current_app.config['APP_CONFIG']
+    # Prevent path traversal
+    cam_dir = os.path.realpath(os.path.join(config.RECORDINGS_DIR, camera_name))
+    rec_dir = os.path.realpath(config.RECORDINGS_DIR)
+    if not cam_dir.startswith(rec_dir):
+        abort(403)
+
+    filepath = os.path.join(cam_dir, filename)
+    if not os.path.isfile(filepath):
+        abort(404)
+
+    return send_file(filepath, mimetype='video/mp4', conditional=True)
 
 
 # --- JSON API ---

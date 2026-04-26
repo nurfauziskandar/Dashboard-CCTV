@@ -23,16 +23,32 @@ def index():
 def add():
     if request.method == 'POST':
         camera_service = current_app.config['camera_service']
-        data = {
-            'name': request.form['name'],
-            'ip_address': request.form['ip_address'],
-            'port': int(request.form.get('port', 80)),
-            'onvif_username': request.form.get('onvif_username'),
-            'onvif_password': request.form.get('onvif_password'),
-            'manufacturer': request.form.get('manufacturer', 'Pelco'),
-            'model': request.form.get('model'),
-            'location_name': request.form.get('location_name'),
-        }
+        add_mode = request.form.get('add_mode', 'rtsp')
+
+        if add_mode == 'rtsp':
+            data = {
+                'add_mode': 'rtsp',
+                'name': request.form['name'],
+                'ip_address': request.form.get('ip_address') or '',
+                'port': int(request.form.get('port', 554)),
+                'manufacturer': request.form.get('manufacturer', 'Pelco'),
+                'model': request.form.get('model'),
+                'location_name': request.form.get('location_name'),
+                'stream_uri': request.form.get('stream_uri') or None,
+            }
+        else:
+            data = {
+                'add_mode': 'onvif',
+                'name': request.form['name'],
+                'ip_address': request.form.get('onvif_ip', ''),
+                'port': int(request.form.get('onvif_port', 80)),
+                'onvif_username': request.form.get('onvif_username'),
+                'onvif_password': request.form.get('onvif_password'),
+                'manufacturer': request.form.get('manufacturer', 'Pelco'),
+                'model': request.form.get('model'),
+                'location_name': request.form.get('location_name'),
+            }
+
         lat = request.form.get('latitude')
         lng = request.form.get('longitude')
         if lat and lng:
@@ -106,6 +122,9 @@ def stream(camera_id):
     if not camera:
         return jsonify({'error': 'Camera not found'}), 404
 
+    if not camera.is_active or not camera.stream_uri:
+        return Response(status=503)
+
     return Response(
         stream_service.get_frame_generator(camera),
         mimetype='multipart/x-mixed-replace; boundary=frame',
@@ -121,7 +140,10 @@ def api_snapshot(camera_id):
     if not camera:
         return jsonify({'error': 'Camera not found'}), 404
 
+    if not camera.is_active or not camera.stream_uri:
+        return Response(status=503)
+
     frame = stream_service.get_snapshot(camera)
     if frame:
         return Response(frame, mimetype='image/jpeg')
-    return jsonify({'error': 'Could not capture snapshot'}), 503
+    return Response(status=503)

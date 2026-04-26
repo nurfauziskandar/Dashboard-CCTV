@@ -33,7 +33,7 @@ class CameraService:
     def create(self, data):
         camera = Camera(
             name=data['name'],
-            ip_address=data['ip_address'],
+            ip_address=data.get('ip_address', ''),
             port=data.get('port', 80),
             onvif_username=data.get('onvif_username'),
             onvif_password=data.get('onvif_password'),
@@ -43,18 +43,23 @@ class CameraService:
             latitude=data.get('latitude'),
             longitude=data.get('longitude'),
         )
-        probe_result = self.adapter.probe(
-            camera.ip_address, camera.port,
-            camera.onvif_username, camera.onvif_password
-        )
-        camera.is_active = probe_result['is_active']
-        camera.stream_uri = probe_result.get('stream_uri')
-        camera.snapshot_uri = probe_result.get('snapshot_uri')
-        camera.last_seen = probe_result.get('last_seen')
-        if probe_result.get('model'):
-            camera.model = probe_result['model']
-        if probe_result.get('firmware'):
-            camera.firmware = probe_result['firmware']
+
+        if data.get('add_mode') == 'rtsp':
+            camera.stream_uri = data.get('stream_uri')
+            camera.is_active = bool(camera.stream_uri)
+        else:
+            probe_result = self.adapter.probe(
+                camera.ip_address, camera.port,
+                camera.onvif_username, camera.onvif_password
+            )
+            camera.is_active = probe_result['is_active']
+            camera.stream_uri = probe_result.get('stream_uri')
+            camera.snapshot_uri = probe_result.get('snapshot_uri')
+            camera.last_seen = probe_result.get('last_seen')
+            if probe_result.get('model'):
+                camera.model = probe_result['model']
+            if probe_result.get('firmware'):
+                camera.firmware = probe_result['firmware']
 
         db.session.add(camera)
         db.session.commit()

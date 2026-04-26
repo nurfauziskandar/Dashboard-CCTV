@@ -108,10 +108,17 @@ class _RTSPCapture:
     def _capture_loop(self):
         reconnect_delay = 1
 
+        # Append FFMPEG timeout (5s) to RTSP URIs — CAP_PROP_OPEN_TIMEOUT_MSEC
+        # is ignored by the FFMPEG backend; the URI option is the reliable path.
+        uri = self.uri
+        if uri.startswith('rtsp://') and 'timeout' not in uri:
+            sep = '&' if '?' in uri else '?'
+            uri += f'{sep}timeout=5000000'
+
         while self._running:
-            self._cap = cv2.VideoCapture(self.uri, cv2.CAP_FFMPEG)
+            self._cap = cv2.VideoCapture(uri, cv2.CAP_FFMPEG)
             self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            self._cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
+            self._cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
 
             if not self._cap.isOpened():
                 self._cap.release()
