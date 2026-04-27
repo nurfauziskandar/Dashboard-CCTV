@@ -113,16 +113,29 @@ class CameraRecorder:
             self._status = 'recording'
             self._error = None
 
+            fps = self.config.VIDEO_FPS
             cmd = [
                 'ffmpeg', '-y',
+                '-loglevel', 'warning',
                 '-rtsp_transport', 'tcp',
+                '-fflags', '+genpts+discardcorrupt',
                 '-i', self.rtsp_uri,
-                '-map', '0:v:0',        # video only — avoids failure on streams without audio
+                '-map', '0:v:0',                  # video only — RTSP CCTV usually has no audio
                 '-c:v', 'libx264',
-                '-preset', 'ultrafast',
+                '-preset', 'veryfast',
+                '-tune', 'zerolatency',
+                '-profile:v', 'main',             # broad browser support
+                '-level', '3.1',
+                '-pix_fmt', 'yuv420p',            # REQUIRED for HTML5 video compat
+                '-g', str(max(fps * 2, 30)),      # keyframe every ~2s — enables seeking
+                '-keyint_min', str(fps),
+                '-sc_threshold', '0',             # consistent keyframe spacing
                 '-crf', '23',
+                '-r', str(fps),                   # constant output fps
+                '-vsync', 'cfr',
                 '-movflags', '+faststart',
                 '-t', str(self.config.SEGMENT_DURATION),
+                '-stats_period', '1',             # emit progress every 1s for frame counter
                 filepath,
             ]
             logger.info('Recorder %s: ffmpeg → %s', self.name, filepath)
@@ -196,10 +209,21 @@ class CameraRecorder:
                     )
                     self._status = 'error'
                     self._error = f'ffmpeg exited {ret}'
+                    # Drop incomplete file (no moov atom = unplayable)
+                    if os.path.exists(filepath) and os.path.getsize(filepath) < 10240:
+                        try:
+                            os.remove(filepath)
+                            logger.info('Recorder %s: removed incomplete %s', self.name, filepath)
+                        except OSError:
+                            pass
                     time.sleep(reconnect_delay)
                     reconnect_delay = min(reconnect_delay * 2, 60)
                 else:
-                    logger.info('Recorder %s: segment done (%d frames)', self.name, self._frames_written)
+                    logger.info(
+                        'Recorder %s: segment done (%d frames, %d bytes)',
+                        self.name, self._frames_written,
+                        os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+                    )
                     reconnect_delay = 2
 
             except Exception as exc:

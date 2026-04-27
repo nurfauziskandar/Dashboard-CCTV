@@ -89,7 +89,11 @@ def serve_recording(camera_name, filename):
     filepath = os.path.join(cam_dir, filename)
     if not os.path.isfile(filepath):
         abort(404)
-    return send_file(filepath, mimetype='video/mp4', conditional=True)
+    resp = send_file(filepath, mimetype='video/mp4', conditional=True)
+    resp.headers['Accept-Ranges'] = 'bytes'
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    return resp
 
 
 @bp.route('/health', methods=['GET'])

@@ -167,7 +167,6 @@ def delete_recording(camera_name, filename):
 @login_required
 def serve_recording(camera_name, filename):
     config = current_app.config['APP_CONFIG']
-    # Prevent path traversal
     cam_dir = os.path.realpath(os.path.join(config.RECORDINGS_DIR, camera_name))
     rec_dir = os.path.realpath(config.RECORDINGS_DIR)
     if not cam_dir.startswith(rec_dir):
@@ -177,7 +176,11 @@ def serve_recording(camera_name, filename):
     if not os.path.isfile(filepath):
         abort(404)
 
-    return send_file(filepath, mimetype='video/mp4', conditional=True)
+    resp = send_file(filepath, mimetype='video/mp4', conditional=True)
+    resp.headers['Accept-Ranges'] = 'bytes'
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    return resp
 
 
 # --- JSON API ---

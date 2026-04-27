@@ -24,8 +24,10 @@
             </div>
             <div class="card-body p-0" style="background: #000;">
                 {% if selected %}
-                <video id="videoPlayer" controls style="width: 100%; max-height: 500px; display: block;"
-                       src="{{ url_for('web.serve_recording', camera_name=camera_name, filename=selected) }}">
+                <video id="videoPlayer" controls preload="metadata" playsinline
+                       style="width: 100%; max-height: 500px; display: block;">
+                    <source src="{{ url_for('web.serve_recording', camera_name=camera_name, filename=selected) }}"
+                            type='video/mp4; codecs="avc1.4D401E"'>
                     Browser tidak mendukung HTML5 video.
                 </video>
                 {% else %}
@@ -96,21 +98,29 @@ document.addEventListener('DOMContentLoaded', function () {
             var name = this.dataset.name;
             var size = this.dataset.size;
 
-            // Update player
+            // Update player — recreate <source> with explicit MIME so
+            // Firefox/Chrome don't reject the file
             if (!player) {
-                // First time — create video element
                 var container = document.querySelector('.card-body[style*="background: #000"]');
                 player = document.createElement('video');
                 player.id = 'videoPlayer';
                 player.controls = true;
+                player.preload = 'metadata';
+                player.playsInline = true;
                 player.style.cssText = 'width: 100%; max-height: 500px; display: block;';
                 container.innerHTML = '';
                 container.appendChild(player);
             }
 
-            player.src = src;
+            // Replace <source> children, then call load() — setting .src
+            // alone skips type-hint sniffing in some browsers
+            while (player.firstChild) player.removeChild(player.firstChild);
+            var source = document.createElement('source');
+            source.src = src;
+            source.type = 'video/mp4; codecs="avc1.4D401E"';
+            player.appendChild(source);
             player.load();
-            player.play();
+            player.play().catch(function () { /* autoplay may be blocked */ });
 
             title.textContent = name;
             meta.textContent = size + ' MB';
