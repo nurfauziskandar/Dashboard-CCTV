@@ -30,6 +30,14 @@ class BaseConfig:
     )
     STORAGE_TIMEOUT = int(os.environ.get('STORAGE_TIMEOUT', 5))
 
+    # --- Live Streaming (RTSP -> MJPEG proxy) ---
+    # Lower these if dashboard CPU spikes during live view of high-resolution
+    # cameras. Browser only sees STREAM_FPS frames/sec, downscaled to
+    # STREAM_MAX_WIDTH px wide before JPEG encode.
+    STREAM_FPS = int(os.environ.get('STREAM_FPS', 10))
+    STREAM_MAX_WIDTH = int(os.environ.get('STREAM_MAX_WIDTH', 1280))
+    STREAM_JPEG_QUALITY = int(os.environ.get('STREAM_JPEG_QUALITY', 65))
+
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True

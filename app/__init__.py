@@ -99,7 +99,11 @@ def create_app(config_name=None):
             stream_service = FakeStreamService()
         else:
             from app.services.stream_service import StreamService
-            stream_service = StreamService()
+            stream_service = StreamService(
+                target_fps=app.config.get('STREAM_FPS'),
+                max_width=app.config.get('STREAM_MAX_WIDTH'),
+                jpeg_quality=app.config.get('STREAM_JPEG_QUALITY'),
+            )
 
         from app.services.storage_client import StorageClient
         storage_client = StorageClient(
