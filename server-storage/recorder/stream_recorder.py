@@ -2,7 +2,9 @@ import os
 import re
 import time
 import json
+import shutil
 import threading
+import subprocess
 import logging
 from datetime import datetime, timedelta
 
@@ -10,17 +12,24 @@ import cv2
 
 logger = logging.getLogger(__name__)
 
-# Characters not allowed in filenames on Windows
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
 def _safe_filename(name):
-    """Sanitize a string for use as a filename on any OS."""
     return _UNSAFE_CHARS.sub('_', name).strip('. ')
 
 
+def _ffmpeg_available():
+    return shutil.which('ffmpeg') is not None
+
+
 class CameraRecorder:
-    """Records a single RTSP camera stream to disk in segmented video files."""
+    """Records a single RTSP camera stream to segmented MP4 files.
+
+    Uses ffmpeg subprocess when available (H.264 + faststart = all-browser
+    compatible). Falls back to OpenCV VideoWriter with a post-process remux
+    step when ffmpeg binary is not on PATH.
+    """
 
     def __init__(self, name, rtsp_uri, config):
         self.name = name
@@ -33,6 +42,15 @@ class CameraRecorder:
         self._status = 'stopped'
         self._error = None
         self._started_at = None
+        self._proc = None          # active ffmpeg subprocess (if any)
+        self._use_ffmpeg = _ffmpeg_available()
+        if self._use_ffmpeg:
+            logger.info('Recorder %s: using ffmpeg backend', name)
+        else:
+            logger.warning(
+                'Recorder %s: ffmpeg not found, using OpenCV backend '
+                '(Firefox playback may not work)', name,
+            )
 
     @property
     def status(self):
@@ -62,13 +80,107 @@ class CameraRecorder:
 
     def stop(self):
         self._running = False
+        proc = self._proc
+        if proc and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         if self._thread:
-            self._thread.join(timeout=10)
+            self._thread.join(timeout=15)
         self._status = 'stopped'
 
-    def _record_loop(self):
-        reconnect_delay = 2
+    # ------------------------------------------------------------------ #
+    # Recording loop dispatcher
+    # ------------------------------------------------------------------ #
 
+    def _record_loop(self):
+        if self._use_ffmpeg:
+            self._record_loop_ffmpeg()
+        else:
+            self._record_loop_opencv()
+
+    # ------------------------------------------------------------------ #
+    # ffmpeg backend
+    # ------------------------------------------------------------------ #
+
+    def _record_loop_ffmpeg(self):
+        reconnect_delay = 2
+        while self._running:
+            filepath = self._next_filepath()
+            self._current_file = filepath
+            self._status = 'recording'
+            self._error = None
+
+            cmd = [
+                'ffmpeg', '-y',
+                '-rtsp_transport', 'tcp',
+                '-i', self.rtsp_uri,
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-crf', '23',
+                '-c:a', 'aac',
+                '-movflags', '+faststart',
+                '-t', str(self.config.SEGMENT_DURATION),
+                filepath,
+            ]
+            logger.info('Recorder %s: ffmpeg → %s', self.name, filepath)
+
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                self._proc = proc
+
+                # Poll every second so stop() is responsive
+                while self._running:
+                    try:
+                        proc.wait(timeout=1)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+
+                if not self._running:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    break
+
+                ret = proc.returncode
+                if ret != 0:
+                    err_out = proc.stderr.read().decode(errors='replace')
+                    last = err_out[-800:].strip()
+                    logger.warning(
+                        'Recorder %s: ffmpeg exited %d\n%s', self.name, ret, last,
+                    )
+                    self._status = 'error'
+                    self._error = f'ffmpeg exited {ret}'
+                    time.sleep(reconnect_delay)
+                    reconnect_delay = min(reconnect_delay * 2, 60)
+                else:
+                    logger.info('Recorder %s: segment done', self.name)
+                    reconnect_delay = 2
+
+            except Exception as exc:
+                self._status = 'error'
+                self._error = str(exc)
+                logger.exception('Recorder %s: ffmpeg launch failed', self.name)
+                time.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 2, 60)
+            finally:
+                self._proc = None
+
+    # ------------------------------------------------------------------ #
+    # OpenCV fallback backend
+    # ------------------------------------------------------------------ #
+
+    def _record_loop_opencv(self):
+        reconnect_delay = 2
         while self._running:
             cap = cv2.VideoCapture(self.rtsp_uri, cv2.CAP_FFMPEG)
             cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
@@ -93,7 +205,7 @@ class CameraRecorder:
 
             try:
                 while self._running:
-                    writer, filepath = self._create_writer(width, height, fps)
+                    writer, filepath = self._create_opencv_writer(width, height, fps)
                     self._current_file = filepath
                     segment_start = time.time()
                     segment_frames = 0
@@ -104,31 +216,26 @@ class CameraRecorder:
                         ret, frame = cap.read()
                         if not ret:
                             logger.warning(
-                                'Recorder %s: lost stream, reconnecting...',
-                                self.name,
+                                'Recorder %s: lost stream, reconnecting...', self.name,
                             )
                             break
-
                         writer.write(frame)
                         self._frames_written += 1
                         segment_frames += 1
-
-                        elapsed = time.time() - segment_start
-                        if elapsed >= self.config.SEGMENT_DURATION:
+                        if time.time() - segment_start >= self.config.SEGMENT_DURATION:
                             break
 
                     writer.release()
                     logger.info(
-                        'Recorder %s: segment done, %d frames',
-                        self.name, segment_frames,
+                        'Recorder %s: segment done, %d frames', self.name, segment_frames,
                     )
+                    # Post-process: remux to faststart so browsers can stream it
+                    self._remux_faststart(filepath)
 
                     if not ret:
                         break
-
-            except Exception as e:
+            except Exception:
                 self._status = 'error'
-                self._error = str(e)
                 logger.exception('Recorder %s: error', self.name)
             finally:
                 cap.release()
@@ -136,28 +243,61 @@ class CameraRecorder:
             if self._running:
                 time.sleep(reconnect_delay)
 
-    def _create_writer(self, width, height, fps):
-        safe_name = _safe_filename(self.name)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'{safe_name}_{timestamp}.mp4'
-
-        cam_dir = os.path.join(self.config.RECORDINGS_DIR, safe_name)
-        os.makedirs(cam_dir, exist_ok=True)
-        filepath = os.path.join(cam_dir, filename)
-
-        # Try H.264 first (browser-compatible), fall back to mp4v if unavailable
+    def _create_opencv_writer(self, width, height, fps):
+        filepath = self._next_filepath()
         for codec in (self.config.VIDEO_CODEC, 'avc1', 'H264', 'mp4v'):
             fourcc = cv2.VideoWriter_fourcc(*codec)
             writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
             if writer.isOpened():
-                logger.info('Recorder %s: using codec %s', self.name, codec)
+                logger.info('Recorder %s: codec %s', self.name, codec)
                 return writer, filepath
             writer.release()
-
-        # Last resort
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
         return writer, filepath
+
+    def _remux_faststart(self, filepath):
+        """Remux finished segment to move moov atom to start (faststart).
+
+        Required for HTTP progressive download in Firefox. No-op if ffmpeg
+        is unavailable or the remux fails.
+        """
+        if not shutil.which('ffmpeg'):
+            return
+        tmp = filepath + '.faststart.mp4'
+        try:
+            result = subprocess.run(
+                [
+                    'ffmpeg', '-y', '-i', filepath,
+                    '-c', 'copy', '-movflags', '+faststart',
+                    tmp,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                os.replace(tmp, filepath)
+                logger.debug('Recorder %s: remuxed faststart %s', self.name, filepath)
+        except Exception:
+            logger.debug('Recorder %s: faststart remux skipped', self.name)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+
+    def _next_filepath(self):
+        safe_name = _safe_filename(self.name)
+        cam_dir = os.path.join(self.config.RECORDINGS_DIR, safe_name)
+        os.makedirs(cam_dir, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        return os.path.join(cam_dir, f'{safe_name}_{timestamp}.mp4')
 
 
 class RecordingManager:
@@ -200,7 +340,6 @@ class RecordingManager:
 
     def update_retention(self, retention_days=None, max_storage_gb=None,
                          cleanup_interval=None):
-        """Update retention settings at runtime."""
         if retention_days is not None:
             self._retention['retention_days'] = max(0, int(retention_days))
         if max_storage_gb is not None:
@@ -219,7 +358,7 @@ class RecordingManager:
         for cam in cameras:
             self.add_camera(cam['name'], cam['rtsp_uri'])
         self._cleanup_thread = threading.Thread(
-            target=self._cleanup_loop, daemon=True
+            target=self._cleanup_loop, daemon=True,
         )
         self._cleanup_thread.start()
 
@@ -294,12 +433,10 @@ class RecordingManager:
                     cam_size += sz
                     total_size += sz
                     total_files += 1
-
                     if oldest_time is None or mtime < oldest_time:
                         oldest_time = mtime
                     if newest_time is None or mtime > newest_time:
                         newest_time = mtime
-
                     files.append({
                         'name': f,
                         'size_mb': round(sz / 1e6, 1),
@@ -352,7 +489,6 @@ class RecordingManager:
     # --- Retention / Cleanup ---
 
     def _cleanup_loop(self):
-        """Run retention cleanup periodically."""
         while self._running:
             try:
                 deleted_age = self._cleanup_by_age()
@@ -367,11 +503,9 @@ class RecordingManager:
             time.sleep(self.cleanup_interval)
 
     def _get_all_recording_files(self):
-        """Scan recordings dir, return list of (path, mtime, size) sorted oldest first."""
         rec_dir = self.config.RECORDINGS_DIR
         if not os.path.exists(rec_dir):
             return []
-
         all_files = []
         for root, dirs, files in os.walk(rec_dir):
             for f in files:
@@ -381,65 +515,48 @@ class RecordingManager:
                     all_files.append((fpath, stat.st_mtime, stat.st_size))
                 except OSError:
                     continue
-
-        all_files.sort(key=lambda x: x[1])  # oldest first
+        all_files.sort(key=lambda x: x[1])
         return all_files
 
     def _cleanup_by_age(self):
-        """Delete recordings older than retention_days. Returns count deleted."""
         days = self.retention_days
         if days <= 0:
             return 0
-
         cutoff = time.time() - (days * 86400)
         deleted = 0
-
-        for fpath, mtime, fsize in self._get_all_recording_files():
+        for fpath, mtime, _ in self._get_all_recording_files():
             if mtime < cutoff:
                 try:
                     os.remove(fpath)
                     deleted += 1
-                    logger.debug(
-                        'Retention: deleted %s (age: %d days)',
-                        fpath,
-                        int((time.time() - mtime) / 86400),
-                    )
                 except OSError:
                     pass
             else:
-                break  # sorted by time, no more old files
-
-        # Clean up empty camera directories
+                break
         self._cleanup_empty_dirs()
         return deleted
 
     def _cleanup_by_size(self):
-        """Delete oldest recordings when total exceeds max_storage_gb. Returns count deleted."""
         limit_gb = self.max_storage_gb
         if limit_gb <= 0:
             return 0
-
         limit_bytes = limit_gb * 1e9
         all_files = self._get_all_recording_files()
         total_bytes = sum(f[2] for f in all_files)
         deleted = 0
-
         while total_bytes > limit_bytes and all_files:
             fpath, _, fsize = all_files.pop(0)
             try:
                 os.remove(fpath)
                 total_bytes -= fsize
                 deleted += 1
-                logger.debug('Retention: deleted %s (over size limit)', fpath)
             except OSError:
                 pass
-
         if deleted:
             self._cleanup_empty_dirs()
         return deleted
 
     def _cleanup_empty_dirs(self):
-        """Remove empty subdirectories in recordings."""
         rec_dir = self.config.RECORDINGS_DIR
         if not os.path.exists(rec_dir):
             return
