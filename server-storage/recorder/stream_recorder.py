@@ -117,15 +117,45 @@ class CameraRecorder:
                 'ffmpeg', '-y',
                 '-rtsp_transport', 'tcp',
                 '-i', self.rtsp_uri,
+                '-map', '0:v:0',        # video only — avoids failure on streams without audio
                 '-c:v', 'libx264',
                 '-preset', 'ultrafast',
                 '-crf', '23',
-                '-c:a', 'aac',
                 '-movflags', '+faststart',
                 '-t', str(self.config.SEGMENT_DURATION),
                 filepath,
             ]
             logger.info('Recorder %s: ffmpeg → %s', self.name, filepath)
+
+            stderr_lines = []
+
+            def _read_stderr(pipe):
+                # ffmpeg writes stats on a single line using \r (carriage return)
+                # so we read raw chunks and split on both \r and \n
+                buf = b''
+                while True:
+                    chunk = pipe.read(512)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b'\r' in buf or b'\n' in buf:
+                        for sep in (b'\n', b'\r'):
+                            idx = buf.find(sep)
+                            if idx == -1:
+                                continue
+                            line = buf[:idx].decode(errors='replace').strip()
+                            buf = buf[idx + 1:]
+                            if not line:
+                                continue
+                            stderr_lines.append(line)
+                            # Parse: "frame=  150 fps= 15 q=28.0 ..."
+                            if 'frame=' in line:
+                                try:
+                                    part = line.split('frame=')[1].split()[0]
+                                    self._frames_written = int(part)
+                                except (IndexError, ValueError):
+                                    pass
+                            break
 
             try:
                 proc = subprocess.Popen(
@@ -134,6 +164,11 @@ class CameraRecorder:
                     stderr=subprocess.PIPE,
                 )
                 self._proc = proc
+
+                stderr_thread = threading.Thread(
+                    target=_read_stderr, args=(proc.stderr,), daemon=True,
+                )
+                stderr_thread.start()
 
                 # Poll every second so stop() is responsive
                 while self._running:
@@ -149,12 +184,13 @@ class CameraRecorder:
                         proc.wait(timeout=5)
                     except subprocess.TimeoutExpired:
                         proc.kill()
+                    stderr_thread.join(timeout=2)
                     break
 
+                stderr_thread.join(timeout=5)
                 ret = proc.returncode
                 if ret != 0:
-                    err_out = proc.stderr.read().decode(errors='replace')
-                    last = err_out[-800:].strip()
+                    last = '\n'.join(stderr_lines[-10:]).strip()
                     logger.warning(
                         'Recorder %s: ffmpeg exited %d\n%s', self.name, ret, last,
                     )
@@ -163,7 +199,7 @@ class CameraRecorder:
                     time.sleep(reconnect_delay)
                     reconnect_delay = min(reconnect_delay * 2, 60)
                 else:
-                    logger.info('Recorder %s: segment done', self.name)
+                    logger.info('Recorder %s: segment done (%d frames)', self.name, self._frames_written)
                     reconnect_delay = 2
 
             except Exception as exc:
