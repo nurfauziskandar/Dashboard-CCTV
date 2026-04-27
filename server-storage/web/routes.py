@@ -141,6 +141,25 @@ def playback(camera_name):
                            files=files, selected=selected, config=config)
 
 
+@bp.route('/recordings/<path:camera_name>/<filename>/delete', methods=['POST'])
+@login_required
+def delete_recording(camera_name, filename):
+    config = current_app.config['APP_CONFIG']
+    rec_dir = os.path.realpath(config.RECORDINGS_DIR)
+    cam_dir = os.path.realpath(os.path.join(config.RECORDINGS_DIR, camera_name))
+    if not cam_dir.startswith(rec_dir):
+        abort(403)
+    if not filename.endswith('.mp4') or '/' in filename or '\\' in filename:
+        abort(400)
+    filepath = os.path.join(cam_dir, filename)
+    if os.path.isfile(filepath):
+        os.remove(filepath)
+        flash(f'Rekaman "{filename}" dihapus.', 'success')
+    else:
+        flash('File tidak ditemukan.', 'danger')
+    return redirect(url_for('web.recordings'))
+
+
 @bp.route('/recordings/<path:camera_name>/<filename>')
 @login_required
 def serve_recording(camera_name, filename):

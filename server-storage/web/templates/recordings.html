@@ -9,6 +9,7 @@
     </a>
 </div>
 
+
 {% if not cameras %}
 <div class="card">
     <div class="card-body text-center py-5" style="color: var(--text-secondary);">
@@ -35,6 +36,7 @@
                                 <th>File</th>
                                 <th>Waktu</th>
                                 <th class="text-end">Ukuran</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -51,6 +53,16 @@
                                 </td>
                                 <td class="text-end" style="color: var(--text-secondary); font-size: 0.78rem; white-space: nowrap;">
                                     {{ f.size_mb }} MB
+                                </td>
+                                <td class="text-end">
+                                    <form method="POST"
+                                          action="{{ url_for('web.delete_recording', camera_name=cam_name, filename=f.name) }}"
+                                          onsubmit="return confirm('Hapus {{ f.name }}?')">
+                                        <button type="submit" class="btn btn-sm btn-link p-0"
+                                                style="color: var(--danger);" title="Hapus">
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </form>
                                 </td>
                             </tr>
                             {% endfor %}
