@@ -422,6 +422,16 @@ a:hover {
     box-shadow: 0 0 0 3px rgba(79, 110, 247, 0.15);
 }
 
+input[type="number"].form-control {
+    color: var(--text-primary);
+    -moz-appearance: textfield;
+}
+input[type="number"].form-control::-webkit-inner-spin-button,
+input[type="number"].form-control::-webkit-outer-spin-button {
+    opacity: 0.5;
+    filter: invert(0.8);
+}
+
 .form-label {
     font-size: 0.8rem;
     font-weight: 600;
