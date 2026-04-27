@@ -17,12 +17,14 @@ def index():
     rec_manager = current_app.config['rec_manager']
     config = current_app.config['APP_CONFIG']
 
+    import psutil
     system = hw.get_system_info()
     health = hw.get_health_rollup()
     temps = hw.get_temperatures()
     disks = hw.get_disk_info()
     psus = hw.get_psu_info()
     memory = hw.get_memory_info()
+    cpu_percent = psutil.cpu_percent(interval=0.5)
     recorders = rec_manager.get_status()
     rec_info = rec_manager.get_recordings_info()
 
@@ -36,6 +38,7 @@ def index():
                            disks=disks,
                            psus=psus,
                            memory=memory,
+                           cpu_percent=cpu_percent,
                            recorders=recorders,
                            rec_info=rec_info,
                            retention=retention)
