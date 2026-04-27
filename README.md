@@ -12,6 +12,11 @@ Aplikasi dashboard monitoring CCTV berbasis Flask untuk mengintegrasikan sistem 
 - [Protokol dan Port](#protokol-dan-port)
 - [Persyaratan](#persyaratan)
 - [Instalasi](#instalasi)
+  - [1. Clone Repository](#1-clone-repository)
+  - [2. Install Python](#2-install-python)
+  - [3. Install ffmpeg](#3-install-ffmpeg-wajib-untuk-server-storage)
+  - [4. Install Python Dependencies](#4-install-python-dependencies)
+  - [5. Konfigurasi File .env](#5-konfigurasi-file-env)
 - [Konfigurasi](#konfigurasi)
 - [Menjalankan Aplikasi](#menjalankan-aplikasi)
 - [Implementasi Production dengan Pelco](#implementasi-production-dengan-pelco)
@@ -281,7 +286,7 @@ Singkatnya:
 - **Playback = MP4 dari server-storage** (sudah di-segmentasi & disimpan).
 - Kamera dirakam dua koneksi RTSP independen: satu untuk live (dashboard), satu untuk record (server-storage). Beban di kamera: 2 stream concurrent.
 
-**Catatan codec recording:** server-storage merekam dengan H.264 (`avc1`) supaya MP4 hasilnya bisa langsung diputar HTML5 `<video>` di browser. Jika OpenCV tidak punya backend H.264, otomatis fallback ke `mp4v` — file masih `.mp4` tapi beberapa browser tidak bisa play (Safari/Firefox). Pastikan `ffmpeg` dengan `libx264` ter-install di host server-storage.
+**Catatan codec recording:** server-storage menggunakan **ffmpeg subprocess** sebagai backend utama recording. Setiap segmen direkam dengan `libx264` + `-movflags +faststart` sehingga MP4 hasilnya dapat langsung diputar di semua browser (Chrome, Firefox, Safari) via HTTP tanpa buffering penuh. Jika `ffmpeg` tidak ada di PATH, fallback ke OpenCV VideoWriter dengan post-process remux; file tetap ter-rekam tapi mungkin tidak bisa diputar di Firefox. **Pastikan ffmpeg ter-install di host server-storage.**
 
 ### Setup Integrasi
 
@@ -413,6 +418,7 @@ Browser --> Dashboard Server:
 |----------|---------------|------------|
 | Python | 3.10+ | Diuji pada 3.13 |
 | pip | 21+ | Package manager |
+| **ffmpeg** | 4.0+ | **Wajib di host server-storage** untuk recording H.264 + faststart (agar bisa diputar di semua browser termasuk Firefox). Install via package manager — lihat petunjuk di bawah. |
 | Nginx | 1.18+ | Reverse proxy (production, opsional) |
 
 ### Hardware (Server Production)
@@ -489,6 +495,17 @@ Demo mode menggunakan pola adapter injection -- `CameraService` dan `ServerServi
 
 ## Instalasi
 
+Sistem ini terdiri dari **dua aplikasi terpisah**:
+
+| Aplikasi | Direktori | Port Default | Host |
+|----------|-----------|-------------|------|
+| **Dashboard CCTV** | `/` (root) | `5000` | Server monitoring |
+| **Server-Storage** | `/server-storage/` | `8080` (web), `8443` (Redfish) | Server perekaman |
+
+Keduanya bisa di-install di mesin yang sama (development) atau di mesin berbeda (production). Ikuti langkah berikut untuk masing-masing.
+
+---
+
 ### 1. Clone Repository
 
 ```bash
@@ -511,12 +528,54 @@ python --version        # Windows
 python3 --version       # Linux / macOS
 ```
 
-### 3. Install Dependencies
+### 3. Install ffmpeg (Wajib untuk Server-Storage)
+
+ffmpeg digunakan oleh server-storage untuk merekam RTSP ke MP4 H.264 dengan faststart agar bisa diputar di semua browser (Chrome, Firefox, Safari).
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt update && sudo apt install -y ffmpeg
+```
+
+**Linux (RHEL/CentOS/Rocky):**
+```bash
+sudo dnf install -y ffmpeg   # butuh EPEL atau RPM Fusion
+# atau:
+sudo yum install -y epel-release && sudo yum install -y ffmpeg
+```
+
+**macOS:**
+```bash
+brew install ffmpeg
+```
+
+**Windows:**
+```powershell
+# Pakai Chocolatey
+choco install ffmpeg
+
+# Pakai winget
+winget install Gyan.FFmpeg
+```
+
+Atau download manual dari [ffmpeg.org/download](https://ffmpeg.org/download.html), ekstrak, lalu tambahkan folder `bin/` ke PATH.
+
+Verifikasi:
+```bash
+ffmpeg -version
+```
+
+> Jika ffmpeg tidak ada di PATH, server-storage akan jatuh ke mode OpenCV (fallback). File MP4 tetap ter-rekam tapi mungkin tidak bisa diputar di Firefox.
+
+---
+
+### 4. Install Python Dependencies
 
 **Wajib pakai virtualenv** (`venv/`) supaya dependency tidak campur dengan system Python — kalau tidak, package seperti `WSDiscovery` tidak akan terbaca dan fitur Discover error `ModuleNotFoundError: No module named 'wsdiscovery'`.
 
-**Linux / macOS:**
+#### Dashboard CCTV (direktori root)
 
+**Linux / macOS:**
 ```bash
 # Buat venv (sekali saja)
 python3 -m venv venv
@@ -529,7 +588,6 @@ pip install -r requirements.txt
 ```
 
 **Windows (Command Prompt):**
-
 ```cmd
 python -m venv venv
 venv\Scripts\activate
@@ -537,7 +595,6 @@ pip install -r requirements.txt
 ```
 
 **Windows (PowerShell):**
-
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
@@ -545,16 +602,99 @@ pip install -r requirements.txt
 ```
 
 Cek venv aktif (prompt harusnya prefix `(venv)`):
-
 ```bash
 which python    # → .../Dashboard-CCTV/venv/bin/python
 ```
 
-> Tanpa activate, jalankan langsung pakai path absolut venv:
+> Tanpa activate, jalankan langsung pakai path absolut:
 > ```bash
 > ./venv/bin/python run.py
-> ./venv/bin/pip install -r requirements.txt
 > ```
+
+#### Server-Storage (direktori `server-storage/`)
+
+Server-storage memiliki venv dan requirements sendiri:
+
+**Linux / macOS:**
+```bash
+cd server-storage
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Windows (Command Prompt):**
+```cmd
+cd server-storage
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**Windows (PowerShell):**
+```powershell
+cd server-storage
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+---
+
+### 5. Konfigurasi File .env
+
+Masing-masing aplikasi membaca file `.env` di direktorinya sendiri. Salin dari contoh:
+
+**Dashboard CCTV:**
+```bash
+cp .env.example .env
+# Edit .env sesuai kebutuhan
+```
+
+**Server-Storage:**
+```bash
+cd server-storage
+cp .env.example .env
+# Edit server-storage/.env sesuai kebutuhan
+```
+
+Isi minimal untuk production:
+
+**`.env` (Dashboard CCTV):**
+```env
+FLASK_ENV=production
+SECRET_KEY=<hasil secrets.token_hex(32)>
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=ganti-password-anda
+
+# Integrasi ke server-storage
+STORAGE_URL=http://<ip-server-storage>:8080
+STORAGE_API_TOKEN=<token-sama-dengan-server-storage>
+URL_SIGNING_SECRET=<secret-sama-dengan-server-storage>
+```
+
+**`server-storage/.env` (Server-Storage):**
+```env
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=ganti-password-storage
+
+STORAGE_API_TOKEN=<token-sama-dengan-dashboard>
+URL_SIGNING_SECRET=<secret-sama-dengan-dashboard>
+
+# Direktori rekaman (default: server-storage/recordings/)
+# RECORDINGS_DIR=/data/recordings
+
+# Retensi (hari)
+RETENTION_DAYS=7
+MAX_STORAGE_GB=500
+```
+
+Generate token dan secret:
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+# jalankan dua kali — satu untuk STORAGE_API_TOKEN, satu untuk URL_SIGNING_SECRET
+```
 
 ---
 
@@ -617,58 +757,41 @@ DEFAULT_MAP_CENTER = [-6.9175, 107.6191]
 
 ## Menjalankan Aplikasi
 
-### Mode Demo (Development)
+### Dashboard CCTV
+
+#### Mode Demo (Development)
 
 Otomatis terisi 12 kamera demo + 3 server demo. Buka http://localhost:5000.
 
-**Linux / macOS (venv aktif):**
-
+**Linux / macOS:**
 ```bash
 source venv/bin/activate
 python run.py
 ```
 
-**Tanpa activate (path absolut):**
-
-```bash
-./venv/bin/python run.py
-```
-
 **Windows (Command Prompt):**
-
 ```cmd
 venv\Scripts\activate
 python run.py
 ```
 
 **Windows (PowerShell):**
-
 ```powershell
 .\venv\Scripts\Activate.ps1
 python run.py
 ```
 
----
+#### Mode Production
 
-### Mode Production
-
-Pada mode production, dashboard dimulai kosong. Tambahkan kamera dan server melalui UI.
+Dashboard dimulai kosong. Tambahkan kamera dan server melalui UI.
 
 **Linux / macOS:**
-
 ```bash
 source venv/bin/activate
 FLASK_ENV=production python run.py
 ```
 
-**Tanpa activate:**
-
-```bash
-FLASK_ENV=production ./venv/bin/python run.py
-```
-
 **Windows (Command Prompt):**
-
 ```cmd
 venv\Scripts\activate
 set FLASK_ENV=production
@@ -676,23 +799,96 @@ python run.py
 ```
 
 **Windows (PowerShell):**
-
 ```powershell
 .\venv\Scripts\Activate.ps1
 $env:FLASK_ENV="production"
 python run.py
 ```
 
-**Windows — cara praktis, buat file `run_production.bat` di root project:**
-
+**Windows — buat `run_production.bat` di root project:**
 ```bat
 @echo off
+call venv\Scripts\activate
 set FLASK_ENV=production
 python run.py
 pause
 ```
 
-Lalu double-click `run_production.bat` untuk menjalankan.
+---
+
+### Server-Storage
+
+Server-storage menjalankan tiga layanan sekaligus dalam satu proses:
+
+| Layanan | Port | Protokol | Keterangan |
+|---------|------|----------|------------|
+| Management Web UI | 8080 | HTTP | Browser management interface |
+| Redfish API (iDRAC emulator) | 8443 | HTTPS | Diquery oleh dashboard untuk hardware metrics |
+| RTSP Recorder | — | internal | Merekam stream kamera ke file MP4 |
+
+**Linux / macOS:**
+```bash
+cd server-storage
+source venv/bin/activate
+python run.py
+```
+
+**Windows (Command Prompt):**
+```cmd
+cd server-storage
+venv\Scripts\activate
+python run.py
+```
+
+**Windows (PowerShell):**
+```powershell
+cd server-storage
+.\venv\Scripts\Activate.ps1
+python run.py
+```
+
+**Windows — buat `run.bat` di direktori `server-storage/`:**
+```bat
+@echo off
+call venv\Scripts\activate
+python run.py
+pause
+```
+
+Setelah server-storage berjalan, terminal akan menampilkan:
+```
+============================================================
+  Pelco Server Storage Simulator
+============================================================
+  Management UI     : http://192.168.1.x:8080
+  Redfish API       : https://192.168.1.x:8443
+  Recordings Dir    : .../recordings
+
+  Dashboard-CCTV config:
+    iDRAC IP        : 192.168.1.x:8443
+    iDRAC Username  : root
+    iDRAC Password  : calvin
+============================================================
+```
+
+Gunakan nilai `iDRAC IP`, `Username`, dan `Password` tersebut saat menambahkan server di dashboard.
+
+---
+
+### Urutan Start (Recommended)
+
+1. **Jalankan server-storage lebih dulu** — dashboard butuh URL storage saat startup
+2. **Baru jalankan dashboard**
+
+Untuk development di satu mesin, buka dua terminal:
+
+```bash
+# Terminal 1
+cd server-storage && source venv/bin/activate && python run.py
+
+# Terminal 2
+source venv/bin/activate && FLASK_ENV=production python run.py
+```
 
 ---
 
@@ -1271,12 +1467,73 @@ wsd.stop()
 - IGMP snooping aktif tanpa konfigurasi yang benar
 - Kamera di VLAN berbeda
 
+### Recording tidak bisa diputar di Firefox
+
+Firefox butuh MP4 dengan `moov` atom di awal file (faststart) dan codec H.264.
+
+```bash
+# Cek apakah ffmpeg tersedia di server-storage host
+ffmpeg -version
+
+# Jika tidak ada, install dulu:
+# Ubuntu/Debian: sudo apt install ffmpeg
+# macOS:         brew install ffmpeg
+# Windows:       choco install ffmpeg
+
+# Cek apakah file yang sudah ada bisa diputar (test dengan ffprobe)
+ffprobe -v error -show_entries format_tags=major_brand \
+  -of default=noprint_wrappers=1 recordings/<kamera>/<file>.mp4
+```
+
+Setelah ffmpeg ter-install dan server-storage di-restart, semua rekaman **baru** akan otomatis menggunakan ffmpeg backend dengan faststart. Rekaman lama yang sudah ada bisa dikonversi manual:
+
+```bash
+# Konversi satu file (tanpa re-encoding, hanya remux)
+ffmpeg -i input.mp4 -c copy -movflags +faststart output.mp4
+
+# Konversi semua file di semua kamera sekaligus
+find recordings/ -name "*.mp4" -exec sh -c '
+  ffmpeg -y -i "$1" -c copy -movflags +faststart "$1.tmp.mp4" \
+  && mv "$1.tmp.mp4" "$1"
+' _ {} \;
+```
+
 ### Database error setelah update
 
 ```bash
 # Reset database (HATI-HATI: menghapus semua data)
 rm instance/dashboard.db
 python3 run.py  # Database akan dibuat ulang
+```
+
+### Server-Storage tidak bisa diakses dari dashboard
+
+```bash
+# Cek server-storage berjalan
+curl http://<ip-server-storage>:8080/api/health
+
+# Cek Redfish API (dengan self-signed cert)
+curl -sk https://<ip-server-storage>:8443/redfish/v1/ \
+  -u root:calvin | python3 -m json.tool
+
+# Cek token match
+# Dashboard .env dan server-storage/.env harus punya STORAGE_API_TOKEN yang sama
+curl http://<ip>:8080/api/cameras \
+  -H "X-API-Token: <token>"
+```
+
+### ModuleNotFoundError: No module named 'wsdiscovery' (saat discovery)
+
+```bash
+# Pastikan venv aktif sebelum menjalankan dashboard
+source venv/bin/activate
+which python   # harus menunjuk ke venv, bukan system Python
+
+# Install WSDiscovery di venv
+pip install WSDiscovery
+
+# Verifikasi
+python -c "from wsdiscovery.discovery import ThreadedWSDiscovery; print('OK')"
 ```
 
 ---
@@ -1422,44 +1679,83 @@ python3 run.py  # Database akan dibuat ulang
 
 ```
 Dashboard-CCTV/
-├── run.py                      # Entry point
-├── config.py                   # BaseConfig, DevelopmentConfig, ProductionConfig
-├── requirements.txt
+│
+├── run.py                          # Entry point Dashboard CCTV
+├── config.py                       # BaseConfig, DevelopmentConfig, ProductionConfig
+├── requirements.txt                # Python dependencies Dashboard
+├── .env.example                    # Contoh konfigurasi Dashboard
 ├── instance/
-│   └── dashboard.db            # SQLite database (auto-dibuat)
-└── app/
-    ├── __init__.py             # App factory, demo seeding, scheduler setup
-    ├── extensions.py           # db (SQLAlchemy), scheduler (APScheduler)
-    ├── models/
-    │   ├── camera.py           # Camera model
-    │   └── server.py           # Server, HDD, PSU models
-    ├── services/
-    │   ├── camera_service.py   # CameraService (CRUD + polling)
-    │   ├── server_service.py   # ServerService (CRUD + polling)
-    │   ├── onvif_adapter.py    # Integrasi ONVIF nyata (onvif-zeep)
-    │   ├── hardware_monitor.py # iDRAC Redfish + SNMP monitoring
-    │   ├── stream_service.py   # RTSP-to-MJPEG (OpenCV)
-    │   └── demo/
-    │       ├── fake_cameras.py # 12 kamera demo + FakeCameraAdapter
-    │       ├── fake_hardware.py# 3 server demo + FakeHardwareMonitor
-    │       └── fake_stream.py  # Synthetic frame generator
-    ├── routes/
-    │   ├── __init__.py         # Registrasi blueprint
-    │   ├── dashboard.py        # GET / — overview
-    │   ├── cameras.py          # /cameras/* + /cameras/api/*
-    │   └── servers.py          # /servers/* + /servers/api/*
-    ├── templates/
-    │   ├── base.html           # Master layout (sidebar + topbar)
-    │   ├── dashboard/
-    │   │   └── index.html      # Stats cards + peta + server sidebar
-    │   ├── cameras/
-    │   │   ├── index.html      # Grid kamera + filter aktif/nonaktif
-    │   │   ├── add.html        # Form tambah kamera + peta click-to-place
-    │   │   └── detail.html     # Live stream + info kamera
-    │   └── servers/
-    │       ├── index.html      # Kartu server + modal tambah server
-    │       └── detail.html     # Suhu + HDD table + PSU table
-    └── static/
-        ├── css/main.css        # CSS variables dark/light, semua custom style
-        └── js/theme-toggle.js  # Tema switcher + mobile sidebar toggle
+│   └── dashboard.db                # SQLite database (auto-dibuat)
+│
+├── app/                            # === DASHBOARD CCTV ===
+│   ├── __init__.py                 # App factory, demo seeding, scheduler setup
+│   ├── extensions.py               # db (SQLAlchemy), scheduler (APScheduler)
+│   ├── models/
+│   │   ├── camera.py               # Camera model
+│   │   ├── server.py               # Server, HDD, PSU models
+│   │   └── snapshot.py             # StatusSnapshot (Summary Report)
+│   ├── services/
+│   │   ├── camera_service.py       # CameraService (CRUD + polling)
+│   │   ├── server_service.py       # ServerService (CRUD + polling)
+│   │   ├── onvif_adapter.py        # Integrasi ONVIF nyata (onvif-zeep + WS-Discovery)
+│   │   ├── hardware_monitor.py     # iDRAC Redfish + SNMP monitoring
+│   │   ├── stream_service.py       # RTSP-to-MJPEG (OpenCV)
+│   │   ├── storage_client.py       # REST client ke server-storage API
+│   │   ├── snapshot_service.py     # Snapshot harian untuk Summary Report
+│   │   └── demo/
+│   │       ├── fake_cameras.py     # 12 kamera demo + FakeCameraAdapter
+│   │       ├── fake_hardware.py    # 3 server demo + FakeHardwareMonitor
+│   │       └── fake_stream.py      # Synthetic frame generator (Pillow)
+│   ├── routes/
+│   │   ├── __init__.py             # Registrasi blueprint
+│   │   ├── auth.py                 # /login /logout
+│   │   ├── dashboard.py            # GET / — overview stats + peta
+│   │   ├── cameras.py              # /cameras/* + /cameras/api/*
+│   │   ├── servers.py              # /servers/* + /servers/api/*
+│   │   └── summary.py              # /summary/ + CSV export
+│   ├── templates/
+│   │   ├── base.html               # Master layout (sidebar + topbar)
+│   │   ├── auth/login.html
+│   │   ├── dashboard/index.html    # Stats cards + peta + server sidebar
+│   │   ├── cameras/
+│   │   │   ├── index.html          # Grid kamera + filter + Discover modal
+│   │   │   ├── add.html            # Form tambah kamera + peta click-to-place
+│   │   │   └── detail.html         # Live stream + info kamera + playback
+│   │   ├── servers/
+│   │   │   ├── index.html          # Kartu server + modal tambah server
+│   │   │   └── detail.html         # Suhu + HDD table + PSU table
+│   │   └── summary/
+│   │       └── index.html          # Summary report per hari + CSV export
+│   └── static/
+│       ├── css/main.css            # CSS variables dark/light, semua custom style
+│       └── js/theme-toggle.js      # Tema switcher + mobile sidebar toggle
+│
+└── server-storage/                 # === SERVER-STORAGE ===
+    ├── run.py                      # Entry point Server-Storage (web + Redfish + recorder)
+    ├── config.py                   # Config (auto-detect hardware model/serial)
+    ├── requirements.txt            # Python dependencies Server-Storage
+    ├── .env.example                # Contoh konfigurasi Server-Storage
+    ├── cameras.json                # Daftar kamera yang direkam (persisten)
+    ├── retention.json              # Setting retensi (persisten dari web UI)
+    ├── recordings/                 # File MP4 rekaman (per kamera, per segmen)
+    │   └── <nama-kamera>/
+    │       └── <nama>_YYYYMMDD_HHMMSS.mp4
+    ├── monitor/
+    │   ├── hardware.py             # HardwareMonitor: CPU, memory, disk, temp, PSU
+    │   └── smc_reader.py           # Apple SMC temperature reader (macOS)
+    ├── recorder/
+    │   └── stream_recorder.py      # CameraRecorder (ffmpeg/OpenCV) + RecordingManager
+    ├── emulator/
+    │   ├── redfish.py              # iDRAC Redfish API emulator (HTTPS)
+    │   └── snmp_agent.py           # SNMP agent emulator (Endura mode)
+    └── web/
+        ├── auth.py                 # Login/logout web UI
+        ├── routes.py               # Management web UI routes
+        ├── api.py                  # REST API endpoints (/api/*)
+        ├── templates/
+        │   ├── base.html
+        │   ├── index.html          # Dashboard: system info + disks + recorders
+        │   ├── recordings.html     # Daftar rekaman per kamera + tombol hapus
+        │   └── playback.html       # Video player + daftar segmen
+        └── static/
 ```
