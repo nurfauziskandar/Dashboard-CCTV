@@ -116,7 +116,9 @@ class CameraRecorder:
             fps = self.config.VIDEO_FPS
             cmd = [
                 'ffmpeg', '-y',
-                '-loglevel', 'warning',
+                '-hide_banner',
+                '-loglevel', 'error',     # suppress info, keep errors
+                '-stats',                 # force stats line ('frame=...') regardless of loglevel
                 '-rtsp_transport', 'tcp',
                 '-fflags', '+genpts+discardcorrupt',
                 '-i', self.rtsp_uri,
