@@ -1,4 +1,7 @@
+import logging
 from datetime import datetime, timezone
+
+log = logging.getLogger(__name__)
 
 
 class ONVIFAdapter:
@@ -56,26 +59,49 @@ class ONVIFAdapter:
             }
 
     def discover(self):
+        wsd = None
         try:
-            from wsdiscovery.discovery import ThreadedWSDiscovery
+            try:
+                from wsdiscovery.discovery import ThreadedWSDiscovery
+            except ImportError:
+                from wsdiscovery import ThreadedWSDiscovery
+            log.info('ONVIF discover: starting WS-Discovery scan')
             wsd = ThreadedWSDiscovery()
             wsd.start()
             services = wsd.searchServices()
             results = []
+            seen = set()
             for service in services:
-                xaddrs = service.getXAddrs()
-                if xaddrs:
-                    addr = xaddrs[0]
+                try:
+                    xaddrs = service.getXAddrs()
+                except Exception:
+                    xaddrs = []
+                if not xaddrs:
+                    continue
+                addr = xaddrs[0]
+                try:
                     ip = addr.split('//')[1].split(':')[0].split('/')[0]
-                    results.append({
-                        'ip': ip,
-                        'port': 80,
-                        'name': f'ONVIF Device ({ip})',
-                    })
-            wsd.stop()
-            return results
-        except Exception:
-            return []
+                except (IndexError, AttributeError):
+                    continue
+                if ip in seen:
+                    continue
+                seen.add(ip)
+                results.append({
+                    'ip': ip,
+                    'port': 80,
+                    'name': f'ONVIF Device ({ip})',
+                })
+            log.info('ONVIF discover: found %d device(s)', len(results))
+            return {'devices': results, 'error': None}
+        except Exception as exc:
+            log.error('ONVIF discover failed: %s: %s', type(exc).__name__, exc, exc_info=True)
+            return {'devices': [], 'error': f'{type(exc).__name__}: {exc}'}
+        finally:
+            if wsd is not None:
+                try:
+                    wsd.stop()
+                except Exception:
+                    pass
 
     def get_snapshot(self, ip, port, username, password):
         try:

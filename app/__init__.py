@@ -78,7 +78,7 @@ def create_app(config_name=None):
     db.init_app(app)
 
     # Import models so SQLAlchemy knows about them
-    from app.models import Camera, Server, HDD, PSU  # noqa: F401
+    from app.models import Camera, Server, HDD, PSU, StatusSnapshot  # noqa: F401
 
     # Register blueprints
     from app.routes import register_blueprints
@@ -108,10 +108,14 @@ def create_app(config_name=None):
             timeout=app.config.get('STORAGE_TIMEOUT', 5),
         )
 
+        from app.services.snapshot_service import SnapshotService
+        snapshot_service = SnapshotService(app)
+
         app.config['camera_service'] = camera_service
         app.config['server_service'] = server_service
         app.config['stream_service'] = stream_service
         app.config['storage_client'] = storage_client
+        app.config['snapshot_service'] = snapshot_service
         camera_service.storage_client = storage_client
 
         # Seed demo data if in demo mode and DB is empty
@@ -139,7 +143,18 @@ def create_app(config_name=None):
         def poll_servers():
             server_service.poll_all()
 
+        @scheduler.task('cron', id='daily_snapshot', hour=0, minute=0)
+        def daily_snapshot():
+            snapshot_service.capture()
+
         scheduler.start()
+
+        # Capture an initial snapshot for today on startup so summary shows
+        # data even before the first midnight tick.
+        try:
+            snapshot_service.capture()
+        except Exception as exc:
+            app.logger.warning('Initial snapshot capture failed: %s', exc)
 
     return app
 

@@ -162,7 +162,7 @@ class FakeCameraAdapter:
                 'port': 80,
                 'name': f'Discovered Camera {base + i}',
             })
-        return results
+        return {'devices': results, 'error': None}
 
     def get_snapshot(self, ip, port, username, password):
         return None

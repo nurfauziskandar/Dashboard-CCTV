@@ -108,7 +108,7 @@ class Config:
         'RECORDINGS_DIR', os.path.join(BASE_DIR, 'recordings')
     )
     SEGMENT_DURATION = int(os.environ.get('SEGMENT_DURATION', 300))
-    VIDEO_CODEC = os.environ.get('VIDEO_CODEC', 'mp4v')
+    VIDEO_CODEC = os.environ.get('VIDEO_CODEC', 'avc1')
     VIDEO_FPS = int(os.environ.get('VIDEO_FPS', 15))
 
     # --- Retention Policy ---

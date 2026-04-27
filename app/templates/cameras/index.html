@@ -125,7 +125,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     var html = '';
-                    if (data.devices && data.devices.length > 0) {
+                    if (data.error) {
+                        html = '<div class="py-3" style="color: var(--danger); font-size: 0.85rem;">';
+                        html += '<i class="fa-solid fa-circle-exclamation me-1"></i> Discovery error: ' + data.error;
+                        html += '<div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 8px;">';
+                        html += 'WS-Discovery uses UDP multicast 239.255.255.250:3702. Common causes: package <code>WSDiscovery</code> not installed (<code>pip install WSDiscovery</code>), multicast blocked by network/firewall, camera in different VLAN.';
+                        html += '</div></div>';
+                    } else if (data.devices && data.devices.length > 0) {
                         html = '<div class="list-group">';
                         data.devices.forEach(function (d) {
                             html += '<div class="list-group-item d-flex justify-content-between align-items-center" style="background: var(--bg-input); border-color: var(--border-color); color: var(--text-primary);">';
@@ -135,13 +141,13 @@ document.addEventListener('DOMContentLoaded', function () {
                         });
                         html += '</div>';
                     } else {
-                        html = '<div class="text-center py-3" style="color: var(--text-muted);">No devices found on the network.</div>';
+                        html = '<div class="text-center py-3" style="color: var(--text-muted);">No devices found on the network. Check that cameras are on the same subnet and multicast is allowed.</div>';
                     }
                     document.getElementById('discoverResults').innerHTML = html;
                 })
-                .catch(function () {
+                .catch(function (err) {
                     document.getElementById('discoverResults').innerHTML =
-                        '<div class="text-center py-3" style="color: var(--danger);">Discovery failed. Check network connection.</div>';
+                        '<div class="text-center py-3" style="color: var(--danger);">Discovery request failed: ' + err + '</div>';
                 });
         });
     }

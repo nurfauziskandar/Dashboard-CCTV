@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}Summary Report{% endblock %}
+{% block page_title %}Summary Report{% endblock %}
+
+{% block topbar_actions %}
+<a href="{{ url_for('summary.export_csv', **{'from': date_from.isoformat(), 'to': date_to.isoformat()}) }}"
+   class="btn btn-ghost btn-sm">
+    <i class="fa-solid fa-file-csv me-1"></i> Export CSV
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-sm-4">
+                <label class="form-label" style="font-size: 0.8rem;">From</label>
+                <input type="date" class="form-control" name="from" value="{{ date_from.isoformat() }}">
+            </div>
+            <div class="col-sm-4">
+                <label class="form-label" style="font-size: 0.8rem;">To</label>
+                <input type="date" class="form-control" name="to" value="{{ date_to.isoformat() }}">
+            </div>
+            <div class="col-sm-4">
+                <button type="submit" class="btn btn-accent btn-sm">
+                    <i class="fa-solid fa-magnifying-glass me-1"></i> Apply
+                </button>
+                <a href="{{ url_for('summary.index') }}" class="btn btn-ghost btn-sm">Today</a>
+            </div>
+        </form>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 8px;">
+            Range: {{ date_from.isoformat() }} -> {{ date_to.isoformat() }}.
+            Today live data shown if no snapshot yet. Daily snapshots captured automatically at midnight.
+        </div>
+    </div>
+</div>
+
+{% if not sorted_dates %}
+<div class="empty-state">
+    <i class="fa-solid fa-chart-line"></i>
+    <p>No snapshots in this range. Snapshots are captured daily at 00:00.</p>
+</div>
+{% else %}
+
+{% for d in sorted_dates %}
+{% set bundle = by_date[d] %}
+{% set agg = bundle.aggregate %}
+<div class="card mb-3">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span>
+            <i class="fa-solid fa-calendar-day me-2"></i>
+            <strong>{{ d.strftime('%A, %d %B %Y') }}</strong>
+        </span>
+        {% if agg %}
+        <span style="font-size: 0.85rem;">
+            <span style="color: var(--success);">
+                <i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>
+                {{ agg.cam_active|default(0, true) }} active
+            </span>
+            <span style="color: var(--text-muted);">/</span>
+            <span style="color: var(--danger);">
+                <i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>
+                {{ agg.cam_inactive|default(0, true) }} inactive
+            </span>
+            <span style="color: var(--text-muted);">/</span>
+            <span style="color: var(--text-secondary);">{{ agg.cam_total|default(0, true) }} total cameras</span>
+        </span>
+        {% endif %}
+    </div>
+    <div class="card-body p-0">
+        {% if bundle.servers %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" style="font-size: 0.85rem;">
+                <thead>
+                    <tr>
+                        <th>Server</th>
+                        <th>Status</th>
+                        <th>Health</th>
+                        <th>Inlet</th>
+                        <th>CPU</th>
+                        <th>MEM</th>
+                        <th>Drives</th>
+                        <th>Alerts</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in bundle.servers %}
+                    <tr>
+                        <td class="fw-semibold">{{ s.server_name or '--' }}</td>
+                        <td>
+                            {% if s.is_online %}
+                            <span style="color: var(--success);"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>Online</span>
+                            {% else %}
+                            <span style="color: var(--danger);"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>Offline</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if s.health_rollup == 'OK' %}
+                            <span style="color: var(--success); font-weight: 600;">OK</span>
+                            {% elif s.health_rollup == 'Warning' %}
+                            <span style="color: var(--warning); font-weight: 600;">Warning</span>
+                            {% elif s.health_rollup == 'Critical' %}
+                            <span style="color: var(--danger); font-weight: 600;">Critical</span>
+                            {% else %}<span style="color: var(--text-muted);">{{ s.health_rollup or '--' }}</span>{% endif %}
+                        </td>
+                        <td>{% if s.inlet_temp is not none %}{{ s.inlet_temp|round(1) }}C{% else %}--{% endif %}</td>
+                        <td>{% if s.cpu_usage is not none %}{{ s.cpu_usage|round(1) }}%{% else %}--{% endif %}</td>
+                        <td>{% if s.memory_usage is not none %}{{ s.memory_usage|round(1) }}%{% else %}--{% endif %}</td>
+                        <td>{{ s.hdd_total|default(0, true) }}</td>
+                        <td>
+                            {% if s.hdd_alerts and s.hdd_alerts > 0 %}
+                            <span style="color: var(--warning); font-weight: 600;">{{ s.hdd_alerts }}</span>
+                            {% else %}
+                            <span style="color: var(--text-muted);">0</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-3" style="color: var(--text-muted); font-size: 0.85rem;">
+            No server data on this date.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

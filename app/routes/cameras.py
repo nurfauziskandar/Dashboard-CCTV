@@ -136,8 +136,10 @@ def api_refresh(camera_id):
 @bp.route('/api/discover')
 def api_discover():
     camera_service = current_app.config['camera_service']
-    devices = camera_service.discover()
-    return jsonify({'devices': devices})
+    result = camera_service.discover()
+    if isinstance(result, dict):
+        return jsonify(result)
+    return jsonify({'devices': result, 'error': None})
 
 
 # --- Streaming ---

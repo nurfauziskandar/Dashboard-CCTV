@@ -44,6 +44,12 @@
                         <span>Servers</span>
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ 'active' if request.endpoint and request.endpoint.startswith('summary.') }}" href="{{ url_for('summary.index') }}">
+                        <i class="fa-solid fa-chart-line"></i>
+                        <span>Summary</span>
+                    </a>
+                </li>
             </ul>
 
             <div class="sidebar-footer">

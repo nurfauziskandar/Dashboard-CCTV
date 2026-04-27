@@ -217,6 +217,72 @@ Dashboard dan Server-Storage berjalan **terpisah** (host beda boleh). Pola integ
 2. **Auto-register** — Saat tambah kamera di dashboard, dashboard panggil `POST {STORAGE_URL}/api/cameras` dengan body `{name, rtsp_uri}`. Server-storage mulai recording.
 3. **Playback** — Dashboard panggil `GET {STORAGE_URL}/api/recordings/<camera_name>`. Server-storage balas list MP4 + signed URL per file (HMAC-SHA256, expires 5 menit). Browser fetch MP4 langsung dari server-storage pakai signed URL (no proxy, hemat bandwidth dashboard).
 
+### Flow Penambahan Kamera (langkah demi langkah)
+
+```
+                   ┌──────────────────────┐
+                   │  User klik           │
+                   │  "Add Camera"        │
+                   └──────────┬───────────┘
+                              ▼
+        ┌─────────────────────────────────────────────┐
+        │  Form (mode RTSP atau ONVIF)                │
+        │   - name, ip, RTSP URI / ONVIF user/pass    │
+        │   - lat/lng (opsional)                      │
+        └──────────────────────┬──────────────────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │  POST /cameras/add   │
+                    │  → CameraService     │
+                    └──────────┬───────────┘
+                               ▼
+              ┌────────────────┴───────────────┐
+              │                                │
+         add_mode=rtsp                    add_mode=onvif
+              │                                │
+              ▼                                ▼
+   simpan stream_uri saja        ONVIFAdapter.probe()
+                                 - GetDeviceInformation
+                                 - GetStreamUri  → rtsp://...
+                                 - GetSnapshotUri
+                                                │
+              └────────────────┬───────────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │  INSERT camera row   │
+                    │  (DB SQLite)         │
+                    └──────────┬───────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │  StorageClient       │
+                    │  POST /api/cameras   │  ← X-API-Token
+                    │  {name, rtsp_uri}    │
+                    └──────────┬───────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │  Server-Storage      │
+                    │  RecordingManager    │
+                    │  + CameraRecorder    │
+                    │  → mulai rekam MP4   │
+                    └──────────────────────┘
+```
+
+**Sumber stream untuk masing-masing fungsi:**
+
+| Fungsi | Sumber | Protokol | Keterangan |
+|--------|--------|----------|------------|
+| **Live view** (halaman detail kamera) | **Langsung dari kamera CCTV** | RTSP → MJPEG proxy | Dashboard buka koneksi RTSP ke kamera, convert frame ke MJPEG untuk browser. **Tidak melalui server-storage**. Latency rendah (~ratusan ms). |
+| **Snapshot** (thumbnail di list) | Langsung dari kamera | RTSP single frame | Diambil on-demand dari kamera, di-encode jadi JPEG. |
+| **Recording** (file MP4) | Langsung dari kamera | RTSP → MP4 (H.264) | Server-storage punya koneksi RTSP **terpisah** ke kamera, rekam segmen MP4 (default 5 menit/file). |
+| **Playback** (halaman playback) | **Dari server-storage** | HTTP MP4 + signed URL | Dashboard request list rekaman ke server-storage, browser fetch MP4 langsung dari server-storage (HMAC-SHA256 signed URL, TTL 5 menit). **Tidak melalui dashboard sebagai proxy**. |
+
+Singkatnya:
+- **Live = direct RTSP ke kamera** (low latency, real-time).
+- **Playback = MP4 dari server-storage** (sudah di-segmentasi & disimpan).
+- Kamera dirakam dua koneksi RTSP independen: satu untuk live (dashboard), satu untuk record (server-storage). Beban di kamera: 2 stream concurrent.
+
+**Catatan codec recording:** server-storage merekam dengan H.264 (`avc1`) supaya MP4 hasilnya bisa langsung diputar HTML5 `<video>` di browser. Jika OpenCV tidak punya backend H.264, otomatis fallback ke `mp4v` — file masih `.mp4` tapi beberapa browser tidak bisa play (Safari/Firefox). Pastikan `ffmpeg` dengan `libx264` ter-install di host server-storage.
+
 ### Setup Integrasi
 
 **Server-storage (host B):**
@@ -1022,12 +1088,36 @@ sequenceDiagram
 
 ### Background Polling
 
-Flask-APScheduler menjalankan dua job berkala:
+Flask-APScheduler menjalankan tiga job berkala:
 
 | Job | Interval Default | Fungsi |
 |-----|-----------------|--------|
 | `poll_cameras` | 60 detik | Probe semua kamera via ONVIF, update status |
 | `poll_servers` | 120 detik | Cek health semua server, update data HDD |
+| `daily_snapshot` | Cron 00:00 | Simpan snapshot harian server + camera count untuk Summary Report |
+
+### Summary Report
+
+Halaman `/summary` menampilkan rekap status setiap server storage + jumlah kamera aktif/non-aktif. Filter by tanggal atau date range.
+
+- **Snapshot harian** — APScheduler menulis baris baru ke tabel `status_snapshot` setiap tengah malam. Satu baris per (tanggal, server) + satu baris aggregate (server_id NULL) untuk total kamera.
+- **Date range** — query rentang tanggal, hasil dikelompokkan per hari.
+- **Today fallback** — jika hari ini belum ada snapshot tersimpan, halaman menampilkan data live saat ini.
+- **Export CSV** — tombol "Export CSV" di kanan atas mengunduh `summary_<from>_to_<to>.csv` berisi semua kolom.
+
+Field per snapshot:
+
+| Kolom | Sumber |
+|-------|--------|
+| `server_name` | Server.name |
+| `is_online` | Server.is_online |
+| `health_rollup` | OK / Warning / Critical (dari iDRAC Status.HealthRollup) |
+| `inlet_temp` | Inlet temp (Celsius) |
+| `cpu_usage` | CPU % (dari Redfish ProcessorSummary.CpuUsagePercent) |
+| `memory_usage` | Memory % (dari Redfish MemorySummary.MemoryUsagePercent) |
+| `hdd_total` | jumlah HDD |
+| `hdd_alerts` | jumlah HDD dengan health Warning/Critical |
+| `cam_total` / `cam_active` / `cam_inactive` | total/aktif/inaktif camera saat snapshot |
 
 Interval dapat dikonfigurasi di `config.py`:
 

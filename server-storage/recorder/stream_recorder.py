@@ -145,7 +145,17 @@ class CameraRecorder:
         os.makedirs(cam_dir, exist_ok=True)
         filepath = os.path.join(cam_dir, filename)
 
-        fourcc = cv2.VideoWriter_fourcc(*self.config.VIDEO_CODEC)
+        # Try H.264 first (browser-compatible), fall back to mp4v if unavailable
+        for codec in (self.config.VIDEO_CODEC, 'avc1', 'H264', 'mp4v'):
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
+            if writer.isOpened():
+                logger.info('Recorder %s: using codec %s', self.name, codec)
+                return writer, filepath
+            writer.release()
+
+        # Last resort
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
         return writer, filepath
 
