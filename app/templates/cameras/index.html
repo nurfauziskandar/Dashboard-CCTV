@@ -127,9 +127,13 @@ document.addEventListener('DOMContentLoaded', function () {
                     var html = '';
                     if (data.error) {
                         html = '<div class="py-3" style="color: var(--danger); font-size: 0.85rem;">';
-                        html += '<i class="fa-solid fa-circle-exclamation me-1"></i> Discovery error: ' + data.error;
+                        html += '<i class="fa-solid fa-circle-exclamation me-1"></i> ' + data.error;
                         html += '<div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 8px;">';
-                        html += 'WS-Discovery uses UDP multicast 239.255.255.250:3702. Common causes: package <code>WSDiscovery</code> not installed (<code>pip install WSDiscovery</code>), multicast blocked by network/firewall, camera in different VLAN.';
+                        if (data.error.toLowerCase().indexOf('wsdiscovery') !== -1 || data.error.toLowerCase().indexOf('tidak terinstall') !== -1) {
+                            html += 'Aktifkan venv terlebih dahulu: <code>source venv/bin/activate</code> lalu jalankan ulang server.';
+                        } else {
+                            html += 'WS-Discovery memakai UDP multicast 239.255.255.250:3702. Pastikan kamera satu subnet, multicast tidak diblokir firewall/VLAN.';
+                        }
                         html += '</div></div>';
                     } else if (data.devices && data.devices.length > 0) {
                         html = '<div class="list-group">';

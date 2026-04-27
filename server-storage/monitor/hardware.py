@@ -135,14 +135,16 @@ class HardwareMonitor:
         system = platform.system()
 
         if system == 'Darwin':
-            return self._get_macos_disks()
+            disks = self._get_macos_disks()
         elif system == 'Linux':
-            return self._get_linux_disks()
+            disks = self._get_linux_disks()
         elif system == 'Windows':
-            return self._get_windows_disks()
+            disks = self._get_windows_disks()
+        else:
+            disks = self._get_fallback_disks()
 
-        # Fallback: basic psutil
-        return self._get_fallback_disks()
+        # Exclude zero-capacity entries (virtual disks, CD-ROMs, unformatted drives)
+        return [d for d in disks if (d.get('capacity_gb') or 0) > 0]
 
     # ---------- macOS ----------
 

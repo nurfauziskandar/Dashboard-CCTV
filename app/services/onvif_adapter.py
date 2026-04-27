@@ -59,12 +59,28 @@ class ONVIFAdapter:
             }
 
     def discover(self):
+        # Resolve ThreadedWSDiscovery before doing anything else so an
+        # ImportError is clearly a "package not installed" problem, not
+        # confused with a network/runtime error later.
+        ThreadedWSDiscovery = None
+        try:
+            from wsdiscovery.discovery import ThreadedWSDiscovery
+        except ImportError:
+            try:
+                from wsdiscovery import ThreadedWSDiscovery
+            except ImportError:
+                log.error('ONVIF discover failed: WSDiscovery not installed')
+                return {
+                    'devices': [],
+                    'error': (
+                        'Package WSDiscovery tidak terinstall. '
+                        'Jalankan: pip install WSDiscovery '
+                        '(atau aktifkan venv: source venv/bin/activate)'
+                    ),
+                }
+
         wsd = None
         try:
-            try:
-                from wsdiscovery.discovery import ThreadedWSDiscovery
-            except ImportError:
-                from wsdiscovery import ThreadedWSDiscovery
             log.info('ONVIF discover: starting WS-Discovery scan')
             wsd = ThreadedWSDiscovery()
             wsd.start()
