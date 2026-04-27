@@ -513,21 +513,47 @@ python3 --version       # Linux / macOS
 
 ### 3. Install Dependencies
 
-**Windows (Command Prompt / PowerShell):**
-
-```cmd
-pip install -r requirements.txt
-```
+**Wajib pakai virtualenv** (`venv/`) supaya dependency tidak campur dengan system Python — kalau tidak, package seperti `WSDiscovery` tidak akan terbaca dan fitur Discover error `ModuleNotFoundError: No module named 'wsdiscovery'`.
 
 **Linux / macOS:**
 
 ```bash
-pip3 install -r requirements.txt
+# Buat venv (sekali saja)
+python3 -m venv venv
+
+# Activate (setiap session terminal baru)
+source venv/bin/activate
+
+# Install
+pip install -r requirements.txt
 ```
 
-> Jika muncul error permission di Linux/macOS, tambahkan flag `--user`:
+**Windows (Command Prompt):**
+
+```cmd
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+Cek venv aktif (prompt harusnya prefix `(venv)`):
+
+```bash
+which python    # → .../Dashboard-CCTV/venv/bin/python
+```
+
+> Tanpa activate, jalankan langsung pakai path absolut venv:
 > ```bash
-> pip3 install --user -r requirements.txt
+> ./venv/bin/python run.py
+> ./venv/bin/pip install -r requirements.txt
 > ```
 
 ---
@@ -595,21 +621,30 @@ DEFAULT_MAP_CENTER = [-6.9175, 107.6191]
 
 Otomatis terisi 12 kamera demo + 3 server demo. Buka http://localhost:5000.
 
-**Linux / macOS:**
+**Linux / macOS (venv aktif):**
 
 ```bash
-python3 run.py
+source venv/bin/activate
+python run.py
+```
+
+**Tanpa activate (path absolut):**
+
+```bash
+./venv/bin/python run.py
 ```
 
 **Windows (Command Prompt):**
 
 ```cmd
+venv\Scripts\activate
 python run.py
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
+.\venv\Scripts\Activate.ps1
 python run.py
 ```
 
@@ -622,12 +657,20 @@ Pada mode production, dashboard dimulai kosong. Tambahkan kamera dan server mela
 **Linux / macOS:**
 
 ```bash
-FLASK_ENV=production python3 run.py
+source venv/bin/activate
+FLASK_ENV=production python run.py
+```
+
+**Tanpa activate:**
+
+```bash
+FLASK_ENV=production ./venv/bin/python run.py
 ```
 
 **Windows (Command Prompt):**
 
 ```cmd
+venv\Scripts\activate
 set FLASK_ENV=production
 python run.py
 ```
@@ -635,6 +678,7 @@ python run.py
 **Windows (PowerShell):**
 
 ```powershell
+.\venv\Scripts\Activate.ps1
 $env:FLASK_ENV="production"
 python run.py
 ```
