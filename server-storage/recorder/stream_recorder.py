@@ -76,6 +76,8 @@ class CameraRecorder:
         self._started_at = None
         self._proc = None          # active ffmpeg subprocess (if any)
         self._use_ffmpeg = _ffmpeg_available()
+        # Last 30 stderr lines from ffmpeg, exposed via UI/API for diagnosis
+        self._last_stderr = []
         if self._use_ffmpeg:
             logger.info('Recorder %s: using ffmpeg backend', name)
         else:
@@ -99,6 +101,10 @@ class CameraRecorder:
     @property
     def frames_written(self):
         return self._frames_written
+
+    @property
+    def last_stderr(self):
+        return list(self._last_stderr)
 
     def start(self):
         if self._running:
@@ -199,6 +205,7 @@ class CameraRecorder:
                         self.name, pattern, seg_secs)
 
             stderr_lines = []
+            self._last_stderr = stderr_lines  # share buffer for live API exposure
 
             def _read_stderr(pipe):
                 buf = b''
@@ -217,7 +224,7 @@ class CameraRecorder:
                             if not line:
                                 continue
                             stderr_lines.append(line)
-                            if len(stderr_lines) > 200:
+                            if len(stderr_lines) > 30:
                                 stderr_lines.pop(0)
                             if 'frame=' in line:
                                 try:
@@ -576,6 +583,7 @@ class RecordingManager:
                     'error': rec.error,
                     'current_file': rec.current_file,
                     'frames_written': rec.frames_written,
+                    'last_stderr': rec.last_stderr,
                 }
             return result
 
