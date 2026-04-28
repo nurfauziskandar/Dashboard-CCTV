@@ -12,7 +12,7 @@
                 <i class="fa-solid fa-video"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-value">{{ cam_counts.total }}</div>
+                <div class="stat-value" id="statTotal">{{ cam_counts.total }}</div>
                 <div class="stat-label">Total Cameras</div>
             </div>
         </div>
@@ -23,7 +23,7 @@
                 <i class="fa-solid fa-circle-check"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-value">{{ cam_counts.active }}</div>
+                <div class="stat-value" id="statActive">{{ cam_counts.active }}</div>
                 <div class="stat-label">Active</div>
             </div>
         </div>
@@ -34,19 +34,59 @@
                 <i class="fa-solid fa-circle-xmark"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-value">{{ cam_counts.inactive }}</div>
+                <div class="stat-value" id="statInactive">{{ cam_counts.inactive }}</div>
                 <div class="stat-label">Inactive</div>
             </div>
         </div>
     </div>
     <div class="col-6 col-lg-3">
         <div class="stat-card">
-            <div class="stat-icon {{ 'warning' if srv_summary.hdd_alerts > 0 else 'info' }}">
+            <div class="stat-icon {{ 'warning' if srv_summary.hdd_alerts > 0 else 'info' }}" id="statAlertIcon">
                 <i class="fa-solid fa-hard-drive"></i>
             </div>
             <div class="stat-content">
-                <div class="stat-value">{{ srv_summary.hdd_alerts }}</div>
+                <div class="stat-value" id="statAlerts">{{ srv_summary.hdd_alerts }}</div>
                 <div class="stat-label">HDD Alerts</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="row g-3 mb-4">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="fa-solid fa-chart-pie me-2"></i>Camera Status
+                <span class="ms-auto badge bg-secondary float-end" id="chartCamCount">{{ cam_counts.total }} total</span>
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center" style="min-height: 240px;">
+                {% if cam_counts.total > 0 %}
+                <canvas id="cameraChart" style="max-height: 220px;"></canvas>
+                {% else %}
+                <div class="empty-state py-3">
+                    <i class="fa-solid fa-video"></i>
+                    <p>Belum ada kamera terdaftar</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="fa-solid fa-chart-column me-2"></i>Server Status
+                <span class="ms-auto badge bg-secondary float-end" id="chartSrvCount">{{ srv_summary.total_servers }} server</span>
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center" style="min-height: 240px;">
+                {% if srv_summary.total_servers > 0 %}
+                <canvas id="serverChart" style="max-height: 220px;"></canvas>
+                {% else %}
+                <div class="empty-state py-3">
+                    <i class="fa-solid fa-server"></i>
+                    <p>Belum ada server terdaftar</p>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -71,10 +111,13 @@
     <!-- Server Status -->
     <div class="col-lg-4">
         <div class="card h-100">
-            <div class="card-header">
-                <i class="fa-solid fa-server me-2"></i>Server Status
+            <div class="card-header d-flex align-items-center">
+                <span><i class="fa-solid fa-server me-2"></i>Server Status</span>
+                <span id="srvRefreshIndicator" class="ms-auto" style="font-size: 0.7rem; color: var(--text-muted);">
+                    <i class="fa-solid fa-rotate fa-spin" style="display:none;" id="srvSpinner"></i>
+                </span>
             </div>
-            <div class="card-body">
+            <div class="card-body" id="serverStatusBody">
                 {% if servers %}
                 {% for server in servers %}
                 <div class="d-flex align-items-center justify-content-between mb-3 pb-3 {{ '' if loop.last else 'border-bottom' }}" style="border-color: var(--border-color) !important;">
@@ -92,7 +135,7 @@
                             <span class="status-dot"></span> Offline
                         </span>
                         {% endif %}
-                        {% if server.inlet_temp %}
+                        {% if server.is_online and server.inlet_temp %}
                         <div class="temp-display {{ server.inlet_temp_status }}" style="font-size: 0.8rem; margin-top: 2px;">
                             <i class="fa-solid fa-temperature-half"></i> {{ server.inlet_temp }}C
                         </div>
@@ -166,6 +209,10 @@
 </div>
 {% endblock %}
 
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -197,6 +244,122 @@ document.addEventListener('DOMContentLoaded', function () {
                 );
         }
     });
+
+    // ----- Charts (Chart.js) -----
+    var textColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--text-primary').trim() || '#fff';
+
+    var camChart = null;
+    var srvChart = null;
+
+    var camCanvas = document.getElementById('cameraChart');
+    if (camCanvas && window.Chart) {
+        camChart = new Chart(camCanvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Active', 'Inactive'],
+                datasets: [{
+                    data: [{{ cam_counts.active }}, {{ cam_counts.inactive }}],
+                    backgroundColor: ['#2ecc71', '#e74c3c'],
+                    borderWidth: 0,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '65%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: textColor, padding: 12 } },
+                }
+            }
+        });
+    }
+
+    var srvCanvas = document.getElementById('serverChart');
+    if (srvCanvas && window.Chart) {
+        srvChart = new Chart(srvCanvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Online', 'Offline'],
+                datasets: [{
+                    data: [{{ srv_summary.online }}, {{ srv_summary.offline }}],
+                    backgroundColor: ['#2ecc71', '#e74c3c'],
+                    borderWidth: 0,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '65%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: textColor, padding: 12 } },
+                }
+            }
+        });
+    }
+
+    // ----- Auto-refresh server + camera status every 8s -----
+    function renderServers(servers) {
+        var body = document.getElementById('serverStatusBody');
+        if (!body) return;
+        if (!servers || servers.length === 0) {
+            body.innerHTML = '<div class="empty-state py-4"><i class="fa-solid fa-server"></i><p>No servers configured</p></div>';
+            return;
+        }
+        var html = '';
+        servers.forEach(function (s, i) {
+            var border = (i === servers.length - 1) ? '' : 'border-bottom';
+            var status = s.is_online
+                ? '<span class="badge-status online"><span class="status-dot"></span> Online</span>'
+                : '<span class="badge-status offline"><span class="status-dot"></span> Offline</span>';
+            var temp = (s.is_online && s.inlet_temp)
+                ? '<div class="temp-display ' + (s.inlet_temp_status || '') + '" style="font-size:0.8rem;margin-top:2px;">'
+                  + '<i class="fa-solid fa-temperature-half"></i> ' + s.inlet_temp + 'C</div>'
+                : '';
+            html += '<div class="d-flex align-items-center justify-content-between mb-3 pb-3 ' + border + '" style="border-color: var(--border-color) !important;">'
+                + '<div><div class="fw-semibold" style="font-size:0.9rem;">' + s.name + '</div>'
+                + '<div style="font-size:0.8rem;color:var(--text-secondary);">' + s.ip_address + '</div></div>'
+                + '<div class="text-end">' + status + temp + '</div></div>';
+        });
+        body.innerHTML = html;
+    }
+
+    function refreshSummary() {
+        var spinner = document.getElementById('srvSpinner');
+        if (spinner) spinner.style.display = 'inline-block';
+        fetch('{{ url_for("dashboard.api_summary") }}', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                // Stat cards
+                document.getElementById('statTotal').textContent = data.cam_counts.total;
+                document.getElementById('statActive').textContent = data.cam_counts.active;
+                document.getElementById('statInactive').textContent = data.cam_counts.inactive;
+                document.getElementById('statAlerts').textContent = data.srv_summary.hdd_alerts;
+
+                // Camera chart
+                if (camChart) {
+                    camChart.data.datasets[0].data = [data.cam_counts.active, data.cam_counts.inactive];
+                    camChart.update('none');
+                    var c1 = document.getElementById('chartCamCount');
+                    if (c1) c1.textContent = data.cam_counts.total + ' total';
+                }
+                // Server chart
+                if (srvChart) {
+                    srvChart.data.datasets[0].data = [data.srv_summary.online, data.srv_summary.offline];
+                    srvChart.update('none');
+                    var c2 = document.getElementById('chartSrvCount');
+                    if (c2) c2.textContent = data.srv_summary.total_servers + ' server';
+                }
+                // Server status panel
+                renderServers(data.servers);
+            })
+            .catch(function () { /* network blip — try again next tick */ })
+            .finally(function () {
+                if (spinner) spinner.style.display = 'none';
+            });
+    }
+
+    setInterval(refreshSummary, 8000);
 });
 </script>
 {% endblock %}

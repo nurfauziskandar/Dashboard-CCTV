@@ -68,6 +68,32 @@ class ServerService:
         health = self.monitor.get_server_health(server)
         log.debug('_refresh_server: health result is_online=%s health_rollup=%s',
                   health.get('is_online'), health.get('health_rollup'))
+        is_online = health.get('is_online', False)
+        server.is_online = is_online
+        server.last_checked = health.get('last_checked', datetime.now(timezone.utc))
+
+        if not is_online:
+            # Server offline — wipe live metrics so UI doesn't show stale values.
+            # Keep identity fields (model/serial) so the row still labels correctly.
+            server.power_state = None
+            server.health_rollup = None
+            server.inlet_temp = None
+            server.exhaust_temp = None
+            server.cpu_usage = None
+            server.memory_usage = None
+            # Clear HDD stats too (mark as Unknown)
+            for hdd in server.hdds:
+                hdd.health_status = 'Unknown'
+                hdd.temperature_c = None
+                hdd.state = None
+                hdd.last_checked = datetime.now(timezone.utc)
+            for psu in server.psus:
+                psu.health_status = 'Unknown'
+                psu.power_watts = None
+                psu.last_checked = datetime.now(timezone.utc)
+            db.session.commit()
+            return
+
         server.system_model = health.get('system_model') or server.system_model
         server.serial_number = health.get('serial_number') or server.serial_number
         server.power_state = health.get('power_state')
@@ -76,8 +102,6 @@ class ServerService:
         server.exhaust_temp = health.get('exhaust_temp')
         server.cpu_usage = health.get('cpu_usage')
         server.memory_usage = health.get('memory_usage')
-        server.is_online = health.get('is_online', True)
-        server.last_checked = health.get('last_checked', datetime.now(timezone.utc))
 
         # Update HDDs
         hdd_data_list = self.monitor.get_hdds(server)
