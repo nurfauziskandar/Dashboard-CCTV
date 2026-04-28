@@ -85,7 +85,7 @@ class _RTSPCapture:
     def _capture_loop(self):
         os.environ.setdefault(
             'OPENCV_FFMPEG_CAPTURE_OPTIONS',
-            'rtsp_transport;tcp|stimeout;5000000',
+            'rtsp_transport;tcp',
         )
 
         reconnect_delay = 1
