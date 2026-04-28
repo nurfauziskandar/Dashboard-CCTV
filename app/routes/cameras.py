@@ -118,6 +118,21 @@ def playback(camera_id):
     )
 
 
+@bp.route('/<int:camera_id>/playback/files')
+def playback_files(camera_id):
+    """JSON list of finalised recordings — used by playback page polling
+    for auto-refresh when ffmpeg closes a new segment."""
+    camera_service = current_app.config['camera_service']
+    storage_client = current_app.config.get('storage_client')
+    camera = camera_service.get_by_id(camera_id)
+    if not camera:
+        return jsonify({'error': 'Camera not found'}), 404
+    if not storage_client or not storage_client.enabled:
+        return jsonify({'files': [], 'storage_online': False})
+    files = storage_client.list_recordings(camera.name)
+    return jsonify({'files': files, 'storage_online': True})
+
+
 @bp.route('/<int:camera_id>/edit', methods=['GET', 'POST'])
 def edit(camera_id):
     camera_service = current_app.config['camera_service']

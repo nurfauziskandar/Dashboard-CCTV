@@ -75,7 +75,7 @@
                     Tidak ada rekaman.
                 </div>
                 {% else %}
-                <div class="list-group list-group-flush">
+                <div class="list-group list-group-flush" id="segmentList">
                     {% for f in files %}
                     <a href="#" class="list-group-item list-group-item-action segment-item"
                        data-src="{{ f.url }}"
@@ -107,7 +107,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var player = document.getElementById('videoPlayer');
     var title = document.getElementById('playerTitle');
     var meta = document.getElementById('playerMeta');
-    var items = document.querySelectorAll('.segment-item');
+    var listEl = document.getElementById('segmentList');
+    var selectedName = {{ selected_file.name | tojson if selected_file else 'null' }};
 
     function setSource(p, src) {
         while (p.firstChild) p.removeChild(p.firstChild);
@@ -118,33 +119,36 @@ document.addEventListener('DOMContentLoaded', function () {
         p.load();
     }
 
-    items.forEach(function (item) {
+    function ensurePlayer() {
+        if (player) return player;
+        var container = document.getElementById('playerContainer');
+        player = document.createElement('video');
+        player.id = 'videoPlayer';
+        player.controls = true;
+        player.preload = 'metadata';
+        player.playsInline = true;
+        player.style.cssText = 'width: 100%; max-height: 540px; display: block;';
+        container.innerHTML = '';
+        container.appendChild(player);
+        return player;
+    }
+
+    function bindItem(item) {
         item.addEventListener('click', function (e) {
             e.preventDefault();
-
             var src = this.dataset.src;
             var name = this.dataset.name;
             var size = this.dataset.size;
 
-            if (!player) {
-                var container = document.getElementById('playerContainer');
-                player = document.createElement('video');
-                player.id = 'videoPlayer';
-                player.controls = true;
-                player.preload = 'metadata';
-                player.playsInline = true;
-                player.style.cssText = 'width: 100%; max-height: 540px; display: block;';
-                container.innerHTML = '';
-                container.appendChild(player);
-            }
-
+            ensurePlayer();
             setSource(player, src);
             player.play().catch(function () { /* autoplay may be blocked */ });
 
             title.textContent = name;
             meta.textContent = size + ' MB';
+            selectedName = name;
 
-            items.forEach(function (i) {
+            document.querySelectorAll('.segment-item').forEach(function (i) {
                 i.style.background = 'transparent';
                 var label = i.querySelector('div');
                 if (label) label.style.color = 'var(--text-primary)';
@@ -153,7 +157,65 @@ document.addEventListener('DOMContentLoaded', function () {
             var label = this.querySelector('div');
             if (label) label.style.color = 'var(--accent)';
         });
-    });
+    }
+
+    document.querySelectorAll('.segment-item').forEach(bindItem);
+
+    // ---- Auto-refresh: poll for newly finalised segments every 5s ----
+    function escapeAttr(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                     '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function renderList(files) {
+        if (!listEl) return;
+        listEl.innerHTML = '';
+        files.forEach(function (f) {
+            var isSel = f.name === selectedName;
+            var bg = isSel ? 'var(--bg-input)' : 'transparent';
+            var color = isSel ? 'var(--accent)' : 'var(--text-primary)';
+            var modified = f.modified ? f.modified.slice(0, 19) : '';
+            var item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action segment-item';
+            item.dataset.src = f.url;
+            item.dataset.name = f.name;
+            item.dataset.size = f.size_mb;
+            item.style.cssText = 'background: ' + bg
+                + '; border-color: var(--border-color); padding: 10px 16px;';
+            item.innerHTML =
+                '<div style="font-size:0.78rem;font-family:monospace;color:' + color
+                + ';margin-bottom:2px;word-break:break-all;">' + escapeAttr(f.name) + '</div>'
+                + '<div style="font-size:0.72rem;color:var(--text-secondary);">'
+                + escapeAttr(modified) + ' &middot; ' + escapeAttr(f.size_mb) + ' MB</div>';
+            bindItem(item);
+            listEl.appendChild(item);
+        });
+    }
+
+    var prevSnapshot = null;
+    function snapshot(files) {
+        return files.map(function (f) { return f.name; }).join('|');
+    }
+
+    function poll() {
+        fetch('{{ url_for("cameras.playback_files", camera_id=camera.id) }}',
+              { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var files = data.files || [];
+                var sig = snapshot(files);
+                if (prevSnapshot !== null && sig !== prevSnapshot) {
+                    renderList(files);
+                }
+                prevSnapshot = sig;
+            })
+            .catch(function () { /* network blip — retry next tick */ });
+    }
+    prevSnapshot = snapshot([{% for f in files %}{name: {{ f.name | tojson }}}{% if not loop.last %},{% endif %}{% endfor %}]);
+    setInterval(poll, 5000);
 });
 </script>
 {% endblock %}

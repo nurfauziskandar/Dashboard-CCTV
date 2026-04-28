@@ -88,60 +88,110 @@ document.addEventListener('DOMContentLoaded', function () {
     var player = document.getElementById('videoPlayer');
     var title = document.getElementById('playerTitle');
     var meta = document.getElementById('playerMeta');
-    var items = document.querySelectorAll('.segment-item');
+    var listEl = document.getElementById('segmentList');
+    var slug = {{ slug | tojson }};
+    var serveBase = '/recordings/' + encodeURIComponent(slug) + '/';
+    var selectedName = {{ selected | tojson }};
 
-    items.forEach(function (item) {
+    function ensurePlayer() {
+        if (player) return player;
+        var container = document.querySelector('.card-body[style*="background: #000"]');
+        player = document.createElement('video');
+        player.id = 'videoPlayer';
+        player.controls = true;
+        player.preload = 'metadata';
+        player.playsInline = true;
+        player.style.cssText = 'width: 100%; max-height: 500px; display: block;';
+        container.innerHTML = '';
+        container.appendChild(player);
+        return player;
+    }
+
+    function setSource(p, src) {
+        while (p.firstChild) p.removeChild(p.firstChild);
+        var source = document.createElement('source');
+        source.src = src;
+        source.type = 'video/mp4; codecs="avc1.4D401E"';
+        p.appendChild(source);
+        p.load();
+    }
+
+    function bindItem(item) {
         item.addEventListener('click', function (e) {
             e.preventDefault();
-
             var src = this.dataset.src;
             var name = this.dataset.name;
             var size = this.dataset.size;
 
-            // Update player — recreate <source> with explicit MIME so
-            // Firefox/Chrome don't reject the file
-            if (!player) {
-                var container = document.querySelector('.card-body[style*="background: #000"]');
-                player = document.createElement('video');
-                player.id = 'videoPlayer';
-                player.controls = true;
-                player.preload = 'metadata';
-                player.playsInline = true;
-                player.style.cssText = 'width: 100%; max-height: 500px; display: block;';
-                container.innerHTML = '';
-                container.appendChild(player);
-            }
-
-            // Replace <source> children, then call load() — setting .src
-            // alone skips type-hint sniffing in some browsers
-            while (player.firstChild) player.removeChild(player.firstChild);
-            var source = document.createElement('source');
-            source.src = src;
-            source.type = 'video/mp4; codecs="avc1.4D401E"';
-            player.appendChild(source);
-            player.load();
+            ensurePlayer();
+            setSource(player, src);
             player.play().catch(function () { /* autoplay may be blocked */ });
 
             title.textContent = name;
             meta.textContent = size + ' MB';
+            selectedName = name;
 
-            // Update active state
-            items.forEach(function (i) {
+            document.querySelectorAll('.segment-item').forEach(function (i) {
                 i.style.background = 'transparent';
                 i.querySelector('div').style.color = 'var(--text-primary)';
             });
             this.style.background = 'var(--bg-input)';
             this.querySelector('div').style.color = 'var(--accent)';
         });
-    });
-
-    // Show size of currently playing file
-    if (player) {
-        var active = document.querySelector('.segment-item.active');
-        if (active) {
-            meta.textContent = active.dataset.size + ' MB';
-        }
     }
+
+    document.querySelectorAll('.segment-item').forEach(bindItem);
+
+    // Auto-refresh polling
+    function escapeAttr(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                     '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function renderList(files) {
+        if (!listEl) return;
+        listEl.innerHTML = '';
+        files.forEach(function (f) {
+            var isSel = f.name === selectedName;
+            var bg = isSel ? 'var(--bg-input)' : 'transparent';
+            var color = isSel ? 'var(--accent)' : 'var(--text-primary)';
+            var item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action segment-item' + (isSel ? ' active' : '');
+            item.dataset.src = serveBase + encodeURIComponent(f.name);
+            item.dataset.name = f.name;
+            item.dataset.size = f.size_mb;
+            item.style.cssText = 'background: ' + bg
+                + '; border-color: var(--border-color); padding: 10px 16px;';
+            item.innerHTML =
+                '<div style="font-size:0.78rem;font-family:monospace;color:' + color
+                + ';margin-bottom:2px;">' + escapeAttr(f.name) + '</div>'
+                + '<div style="font-size:0.72rem;color:var(--text-secondary);">'
+                + escapeAttr(f.modified) + ' &middot; ' + escapeAttr(f.size_mb) + ' MB</div>';
+            bindItem(item);
+            listEl.appendChild(item);
+        });
+    }
+
+    var prevSnapshot = Array.from(document.querySelectorAll('.segment-item'))
+        .map(function (i) { return i.dataset.name; }).join('|');
+
+    function poll() {
+        fetch('/playback/' + encodeURIComponent(slug) + '/files', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var files = data.files || [];
+                var sig = files.map(function (f) { return f.name; }).join('|');
+                if (sig !== prevSnapshot) {
+                    renderList(files);
+                    prevSnapshot = sig;
+                }
+            })
+            .catch(function () { /* network blip — retry next tick */ });
+    }
+    setInterval(poll, 5000);
 });
 </script>
 {% endblock %}

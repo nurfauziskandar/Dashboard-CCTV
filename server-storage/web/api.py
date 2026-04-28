@@ -69,25 +69,39 @@ def unregister_camera(slug):
 @bp.route('/recordings/<slug>', methods=['GET'])
 @api_token_required
 def list_recordings(slug):
-    """Return list of recordings + signed URL per file."""
+    """Return finalised recordings only. The segment ffmpeg is currently
+    writing has no moov atom yet, so it can't be played — hide it."""
+    import time as _t
     cfg = current_app.config['APP_CONFIG']
+    rec_manager = current_app.config['rec_manager']
     cam_dir = os.path.join(cfg.RECORDINGS_DIR, slug)
     if not os.path.isdir(cam_dir):
         return jsonify({'camera': slug, 'files': []})
 
+    in_progress = rec_manager.in_progress_filename(slug)
+    now = _t.time()
+
     files = []
     for f in sorted(os.listdir(cam_dir), reverse=True):
         fpath = os.path.join(cam_dir, f)
-        if os.path.isfile(fpath) and f.endswith('.mp4'):
-            stat = os.stat(fpath)
-            path = f'/api/recordings/{slug}/{f}'
-            qs = sign_url(path)
-            files.append({
-                'name': f,
-                'size_mb': round(stat.st_size / 1e6, 1),
-                'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                'url': f'{path}?{qs}',
-            })
+        if not (os.path.isfile(fpath) and f.endswith('.mp4')):
+            continue
+        if in_progress and f == in_progress:
+            continue
+        stat = os.stat(fpath)
+        # Belt-and-braces: even if we don't know the in-progress name, skip
+        # files modified within the last 3s — they're likely still being
+        # written (segment muxer flushes mtime each write).
+        if (now - stat.st_mtime) < 3:
+            continue
+        path = f'/api/recordings/{slug}/{f}'
+        qs = sign_url(path)
+        files.append({
+            'name': f,
+            'size_mb': round(stat.st_size / 1e6, 1),
+            'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            'url': f'{path}?{qs}',
+        })
 
     return jsonify({'camera': slug, 'files': files})
 

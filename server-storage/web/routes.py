@@ -107,12 +107,13 @@ def update_retention():
 @bp.route('/recordings')
 @login_required
 def recordings():
+    import time as _t
     config = current_app.config['APP_CONFIG']
     rec_manager = current_app.config['rec_manager']
     rec_dir = config.RECORDINGS_DIR
 
-    # Map slug → display name for cameras still registered
     name_map = {c['slug']: c['name'] for c in rec_manager.get_camera_list()}
+    now = _t.time()
 
     cameras = {}
     if os.path.exists(rec_dir):
@@ -120,17 +121,23 @@ def recordings():
             cam_dir = os.path.join(rec_dir, slug)
             if not os.path.isdir(cam_dir):
                 continue
+            in_progress = rec_manager.in_progress_filename(slug)
             files = []
             for f in sorted(os.listdir(cam_dir), reverse=True):
                 fpath = os.path.join(cam_dir, f)
-                if os.path.isfile(fpath) and f.endswith('.mp4'):
-                    stat = os.stat(fpath)
-                    files.append({
-                        'name': f,
-                        'size_mb': round(stat.st_size / 1e6, 1),
-                        'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
-                        'mtime': stat.st_mtime,
-                    })
+                if not (os.path.isfile(fpath) and f.endswith('.mp4')):
+                    continue
+                if in_progress and f == in_progress:
+                    continue
+                stat = os.stat(fpath)
+                if (now - stat.st_mtime) < 3:
+                    continue
+                files.append({
+                    'name': f,
+                    'size_mb': round(stat.st_size / 1e6, 1),
+                    'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'mtime': stat.st_mtime,
+                })
             if files:
                 cameras[slug] = {
                     'display_name': name_map.get(slug, slug),
@@ -138,6 +145,27 @@ def recordings():
                 }
 
     return render_template('recordings.html', cameras=cameras, config=config)
+
+
+def _list_finalised(cam_dir, in_progress):
+    import time as _t
+    now = _t.time()
+    out = []
+    for f in sorted(os.listdir(cam_dir), reverse=True):
+        fpath = os.path.join(cam_dir, f)
+        if not (os.path.isfile(fpath) and f.endswith('.mp4')):
+            continue
+        if in_progress and f == in_progress:
+            continue
+        stat = os.stat(fpath)
+        if (now - stat.st_mtime) < 3:
+            continue
+        out.append({
+            'name': f,
+            'size_mb': round(stat.st_size / 1e6, 1),
+            'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+        })
+    return out
 
 
 @bp.route('/playback/<slug>')
@@ -153,20 +181,25 @@ def playback(slug):
     name_map = {c['slug']: c['name'] for c in rec_manager.get_camera_list()}
     display_name = name_map.get(slug, slug)
 
-    files = []
-    for f in sorted(os.listdir(cam_dir), reverse=True):
-        fpath = os.path.join(cam_dir, f)
-        if os.path.isfile(fpath) and f.endswith('.mp4'):
-            stat = os.stat(fpath)
-            files.append({
-                'name': f,
-                'size_mb': round(stat.st_size / 1e6, 1),
-                'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
-            })
+    in_progress = rec_manager.in_progress_filename(slug)
+    files = _list_finalised(cam_dir, in_progress)
 
     selected = request.args.get('file', files[0]['name'] if files else None)
     return render_template('playback.html', slug=slug, camera_name=display_name,
                            files=files, selected=selected, config=config)
+
+
+@bp.route('/playback/<slug>/files')
+@login_required
+def playback_files_json(slug):
+    """JSON list of finalised recordings — UI polls this for auto-refresh."""
+    config = current_app.config['APP_CONFIG']
+    rec_manager = current_app.config['rec_manager']
+    cam_dir = os.path.join(config.RECORDINGS_DIR, slug)
+    if not os.path.isdir(cam_dir):
+        return jsonify({'files': []})
+    in_progress = rec_manager.in_progress_filename(slug)
+    return jsonify({'files': _list_finalised(cam_dir, in_progress)})
 
 
 @bp.route('/recordings/<slug>/<filename>/delete', methods=['POST'])

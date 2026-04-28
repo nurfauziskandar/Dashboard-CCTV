@@ -99,6 +99,8 @@ class CameraRecorder:
         self._use_ffmpeg = _ffmpeg_available()
         # Last 30 stderr lines from ffmpeg, exposed via UI/API for diagnosis
         self._last_stderr = []
+        # Filename ffmpeg is currently writing (parsed from "Opening 'X'" log)
+        self._current_segment_file = None
         if self._use_ffmpeg:
             logger.info('Recorder %s: using ffmpeg backend', name)
         else:
@@ -126,6 +128,12 @@ class CameraRecorder:
     @property
     def last_stderr(self):
         return list(self._last_stderr)
+
+    @property
+    def current_segment_file(self):
+        """Basename of the segment ffmpeg is currently writing, or None."""
+        cur = self._current_segment_file
+        return os.path.basename(cur) if cur else None
 
     def start(self):
         if self._running:
@@ -254,6 +262,10 @@ class CameraRecorder:
                                 except (IndexError, ValueError):
                                     pass
                             elif 'Opening' in line and '.mp4' in line:
+                                # ffmpeg segment log: [segment @ 0x..] Opening 'path/to/x.mp4' for writing
+                                m = re.search(r"Opening '([^']+\.mp4)'", line)
+                                if m:
+                                    self._current_segment_file = m.group(1)
                                 logger.info('Recorder %s: %s', self.name, line)
                             break
 
@@ -649,6 +661,14 @@ class RecordingManager:
     def get_recorder(self, slug):
         with self._lock:
             return self._recorders.get(slug)
+
+    def in_progress_filename(self, slug):
+        """Basename of the segment currently being written by the recorder
+        for `slug`, or None. list_recordings filters this out so playback
+        only ever shows finalised files."""
+        with self._lock:
+            rec = self._recorders.get(slug)
+        return rec.current_segment_file if rec else None
 
     def get_recordings_info(self):
         rec_dir = self.config.RECORDINGS_DIR
