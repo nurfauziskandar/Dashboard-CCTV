@@ -79,6 +79,9 @@ class CameraService:
         camera = db.session.get(Camera, camera_id)
         if not camera:
             return None
+        old_name = camera.name
+        old_uri = camera.stream_uri
+
         camera.name = data.get('name', camera.name)
         camera.ip_address = data.get('ip_address', camera.ip_address)
         camera.port = int(data['port']) if data.get('port') else camera.port
@@ -89,13 +92,27 @@ class CameraService:
         lng = data.get('longitude')
         camera.latitude = float(lat) if lat else None
         camera.longitude = float(lng) if lng else None
-        camera.stream_uri = data.get('stream_uri') or camera.stream_uri
+
+        new_uri = data.get('stream_uri') or camera.stream_uri
+        camera.stream_uri = new_uri
+        # Trust user-supplied URI — mark active so stream endpoint doesn't 503
+        if new_uri:
+            camera.is_active = True
+
         if data.get('onvif_username'):
             camera.onvif_username = data['onvif_username']
         if data.get('onvif_password'):
             camera.onvif_password = data['onvif_password']
         camera.updated_at = datetime.now(timezone.utc)
         db.session.commit()
+
+        # Re-register to storage with new URI (upsert) so recorder picks up change
+        if self.storage_client and self.storage_client.enabled and new_uri:
+            if camera.name != old_name or new_uri != old_uri:
+                if camera.name != old_name and old_name:
+                    self.storage_client.unregister_camera(old_name)
+                self.storage_client.register_camera(camera.name, new_uri)
+
         return camera
 
     def delete(self, camera_id):
