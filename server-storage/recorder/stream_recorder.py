@@ -3,6 +3,7 @@ import re
 import time
 import json
 import shutil
+import signal
 import threading
 import subprocess
 import logging
@@ -12,7 +13,8 @@ import cv2
 
 logger = logging.getLogger(__name__)
 
-_UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+# Strip path-unsafe chars AND % so ffmpeg's strftime never misinterprets the name
+_UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*%\x00-\x1f]')
 
 
 def _safe_filename(name):
@@ -82,13 +84,26 @@ class CameraRecorder:
         self._running = False
         proc = self._proc
         if proc and proc.poll() is None:
-            proc.terminate()
+            # SIGINT first so ffmpeg flushes the trailer (moov atom) on the
+            # in-progress segment. SIGTERM/SIGKILL leave the file unplayable.
             try:
-                proc.wait(timeout=10)
+                proc.send_signal(signal.SIGINT)
+            except (ProcessLookupError, OSError):
+                pass
+            try:
+                proc.wait(timeout=8)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                logger.warning('Recorder %s: SIGINT timed out, escalating to SIGTERM', self.name)
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    logger.warning('Recorder %s: SIGTERM timed out, sending SIGKILL', self.name)
+                    proc.kill()
+                except (ProcessLookupError, OSError):
+                    pass
         if self._thread:
-            self._thread.join(timeout=15)
+            self._thread.join(timeout=20)
         self._status = 'stopped'
 
     # ------------------------------------------------------------------ #
@@ -106,47 +121,60 @@ class CameraRecorder:
     # ------------------------------------------------------------------ #
 
     def _record_loop_ffmpeg(self):
+        """Single long-running ffmpeg per recorder using the segment muxer.
+
+        Each segment is finalized as soon as it ends, so files always have
+        a moov atom and are immediately playable. SIGINT on stop() flushes
+        the in-progress segment cleanly.
+        """
         reconnect_delay = 2
         while self._running:
-            filepath = self._next_filepath()
-            self._current_file = filepath
+            cam_dir, pattern = self._segment_pattern()
+            self._current_file = pattern
             self._status = 'recording'
             self._error = None
 
             fps = self.config.VIDEO_FPS
+            seg_secs = max(int(self.config.SEGMENT_DURATION), 30)
             cmd = [
                 'ffmpeg', '-y',
                 '-hide_banner',
-                '-loglevel', 'error',     # suppress info, keep errors
-                '-stats',                 # force stats line ('frame=...') regardless of loglevel
+                '-loglevel', 'error',
+                '-stats',
                 '-rtsp_transport', 'tcp',
                 '-fflags', '+genpts+discardcorrupt',
+                '-stimeout', '10000000',          # 10s socket timeout for RTSP
                 '-i', self.rtsp_uri,
-                '-map', '0:v:0',                  # video only — RTSP CCTV usually has no audio
+                '-map', '0:v:0',                  # video only
                 '-c:v', 'libx264',
                 '-preset', 'veryfast',
                 '-tune', 'zerolatency',
-                '-profile:v', 'main',             # broad browser support
+                '-profile:v', 'main',
                 '-level', '3.1',
-                '-pix_fmt', 'yuv420p',            # REQUIRED for HTML5 video compat
-                '-g', str(max(fps * 2, 30)),      # keyframe every ~2s — enables seeking
+                '-pix_fmt', 'yuv420p',
+                '-g', str(max(fps * 2, 30)),
                 '-keyint_min', str(fps),
-                '-sc_threshold', '0',             # consistent keyframe spacing
+                '-sc_threshold', '0',
                 '-crf', '23',
-                '-r', str(fps),                   # constant output fps
+                '-r', str(fps),
                 '-vsync', 'cfr',
-                '-movflags', '+faststart',
-                '-t', str(self.config.SEGMENT_DURATION),
-                '-stats_period', '1',             # emit progress every 1s for frame counter
-                filepath,
+                # Segment muxer: emit one finalized MP4 every seg_secs seconds.
+                # Each file gets its own moov atom so it's playable on its own.
+                '-f', 'segment',
+                '-segment_time', str(seg_secs),
+                '-segment_format', 'mp4',
+                '-segment_format_options', 'movflags=+faststart',
+                '-reset_timestamps', '1',
+                '-strftime', '1',
+                '-stats_period', '2',
+                pattern,
             ]
-            logger.info('Recorder %s: ffmpeg → %s', self.name, filepath)
+            logger.info('Recorder %s: ffmpeg → %s (segments every %ds)',
+                        self.name, pattern, seg_secs)
 
             stderr_lines = []
 
             def _read_stderr(pipe):
-                # ffmpeg writes stats on a single line using \r (carriage return)
-                # so we read raw chunks and split on both \r and \n
                 buf = b''
                 while True:
                     chunk = pipe.read(512)
@@ -163,13 +191,16 @@ class CameraRecorder:
                             if not line:
                                 continue
                             stderr_lines.append(line)
-                            # Parse: "frame=  150 fps= 15 q=28.0 ..."
+                            if len(stderr_lines) > 200:
+                                stderr_lines.pop(0)
                             if 'frame=' in line:
                                 try:
                                     part = line.split('frame=')[1].split()[0]
                                     self._frames_written = int(part)
                                 except (IndexError, ValueError):
                                     pass
+                            elif 'Opening' in line and '.mp4' in line:
+                                logger.info('Recorder %s: %s', self.name, line)
                             break
 
             try:
@@ -179,13 +210,13 @@ class CameraRecorder:
                     stderr=subprocess.PIPE,
                 )
                 self._proc = proc
+                logger.info('Recorder %s: ffmpeg pid=%d', self.name, proc.pid)
 
                 stderr_thread = threading.Thread(
                     target=_read_stderr, args=(proc.stderr,), daemon=True,
                 )
                 stderr_thread.start()
 
-                # Poll every second so stop() is responsive
                 while self._running:
                     try:
                         proc.wait(timeout=1)
@@ -194,46 +225,39 @@ class CameraRecorder:
                         continue
 
                 if not self._running:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                    stderr_thread.join(timeout=2)
+                    # External stop() handles SIGINT/SIGTERM/SIGKILL escalation
+                    stderr_thread.join(timeout=10)
                     break
 
+                # ffmpeg exited on its own — RTSP disconnect, decode error, etc.
                 stderr_thread.join(timeout=5)
                 ret = proc.returncode
                 if ret != 0:
-                    last = '\n'.join(stderr_lines[-10:]).strip()
+                    snippet = '\n'.join(stderr_lines[-15:]).strip()
                     logger.warning(
-                        'Recorder %s: ffmpeg exited %d\n%s', self.name, ret, last,
+                        'Recorder %s: ffmpeg exited %d (will retry in %ds)\n%s',
+                        self.name, ret, reconnect_delay, snippet,
                     )
                     self._status = 'error'
                     self._error = f'ffmpeg exited {ret}'
-                    # Drop incomplete file (no moov atom = unplayable)
-                    if os.path.exists(filepath) and os.path.getsize(filepath) < 10240:
-                        try:
-                            os.remove(filepath)
-                            logger.info('Recorder %s: removed incomplete %s', self.name, filepath)
-                        except OSError:
-                            pass
-                    time.sleep(reconnect_delay)
-                    reconnect_delay = min(reconnect_delay * 2, 20)
                 else:
-                    logger.info(
-                        'Recorder %s: segment done (%d frames, %d bytes)',
-                        self.name, self._frames_written,
-                        os.path.getsize(filepath) if os.path.exists(filepath) else 0,
-                    )
-                    reconnect_delay = 2
+                    logger.info('Recorder %s: ffmpeg exited cleanly (will restart)',
+                                self.name)
 
+                time.sleep(reconnect_delay)
+                reconnect_delay = min(reconnect_delay * 2, 20)
+
+            except FileNotFoundError:
+                self._status = 'error'
+                self._error = 'ffmpeg binary not found on PATH'
+                logger.error('Recorder %s: ffmpeg binary not found', self.name)
+                time.sleep(10)
             except Exception as exc:
                 self._status = 'error'
                 self._error = str(exc)
                 logger.exception('Recorder %s: ffmpeg launch failed', self.name)
                 time.sleep(reconnect_delay)
-                reconnect_delay = min(reconnect_delay * 2, 60)
+                reconnect_delay = min(reconnect_delay * 2, 20)
             finally:
                 self._proc = None
 
@@ -355,11 +379,21 @@ class CameraRecorder:
     # ------------------------------------------------------------------ #
 
     def _next_filepath(self):
+        """OpenCV fallback uses one filepath per segment (loop-driven)."""
         safe_name = _safe_filename(self.name)
         cam_dir = os.path.join(self.config.RECORDINGS_DIR, safe_name)
         os.makedirs(cam_dir, exist_ok=True)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         return os.path.join(cam_dir, f'{safe_name}_{timestamp}.mp4')
+
+    def _segment_pattern(self):
+        """ffmpeg segment muxer takes a strftime pattern; ffmpeg expands it
+        each time it opens a new segment. Returns (cam_dir, pattern)."""
+        safe_name = _safe_filename(self.name)
+        cam_dir = os.path.join(self.config.RECORDINGS_DIR, safe_name)
+        os.makedirs(cam_dir, exist_ok=True)
+        pattern = os.path.join(cam_dir, f'{safe_name}_%Y%m%d_%H%M%S.mp4')
+        return cam_dir, pattern
 
 
 class RecordingManager:

@@ -20,6 +20,7 @@ import ssl
 import logging
 import threading
 from datetime import timedelta
+from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
@@ -27,11 +28,38 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 from flask import Flask
 from config import Config
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
-    datefmt='%H:%M:%S',
-)
+
+def _setup_logging():
+    fmt = logging.Formatter(
+        '%(asctime)s [%(name)s] %(levelname)s: %(message)s',
+        datefmt='%H:%M:%S',
+    )
+    logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
+    os.makedirs(logs_dir, exist_ok=True)
+
+    fh = RotatingFileHandler(
+        os.path.join(logs_dir, 'storage.log'),
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
+        encoding='utf-8',
+    )
+    fh.setFormatter(fmt)
+    fh.setLevel(logging.INFO)
+
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    sh.setLevel(logging.INFO)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if not root.handlers:
+        root.addHandler(fh)
+        root.addHandler(sh)
+    else:
+        root.addHandler(fh)
+
+
+_setup_logging()
 logger = logging.getLogger('server-storage')
 
 

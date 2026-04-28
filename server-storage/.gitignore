@@ -3,3 +3,7 @@ recordings/
 __pycache__/
 *.pyc
 instance/
+logs/
+*.log
+cameras.json
+retention.json
