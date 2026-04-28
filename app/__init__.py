@@ -126,10 +126,10 @@ def create_app(config_name=None):
         if app.config['DEMO_MODE']:
             _seed_demo_data(db, camera_service, server_service)
 
-        # Re-sync cameras → storage on startup so storage recorders resume
-        # even if storage's cameras.json was wiped or storage was offline
-        # when cameras were originally added.
-        _sync_cameras_to_storage(app, camera_service, storage_client)
+        # Two-way sync: push dashboard rows to storage (recorder resume)
+        # AND pull storage rows that the dashboard doesn't know about
+        # (camera was added directly via storage UI).
+        _sync_cameras_with_storage(app, camera_service, storage_client)
 
     # Background polling
     if not app.config.get('TESTING'):
@@ -156,12 +156,13 @@ def create_app(config_name=None):
         def daily_snapshot():
             snapshot_service.capture()
 
-        # Re-sync cameras → storage every 5 min as belt-and-suspenders so
-        # any recorder gap is closed quickly without needing a restart.
-        @scheduler.task('interval', id='sync_storage', seconds=300)
+        # Two-way sync every 60s — fast enough that adding a camera on the
+        # storage UI shows up on the dashboard within ~1 min, slow enough
+        # not to thrash either side.
+        @scheduler.task('interval', id='sync_storage', seconds=60)
         def sync_storage():
             with app.app_context():
-                _sync_cameras_to_storage(app, camera_service, storage_client)
+                _sync_cameras_with_storage(app, camera_service, storage_client)
 
         scheduler.start()
 
@@ -175,27 +176,74 @@ def create_app(config_name=None):
     return app
 
 
-def _sync_cameras_to_storage(app, camera_service, storage_client):
+def _sync_cameras_with_storage(app, camera_service, storage_client):
+    """Bi-directional reconcile between dashboard DB and storage server.
+
+    Push: dashboard row not registered on storage → POST it
+    Pull: storage entry not in dashboard DB → create a Camera row from
+          the metadata storage already has
+
+    Run on startup + every 60s. Best-effort; storage offline = silent skip.
+    """
     if not storage_client or not storage_client.enabled:
         return
     try:
-        registered = storage_client.list_registered()
-    except Exception:
-        app.logger.warning('Storage sync skipped — could not reach storage')
+        storage_cams = storage_client.list_cameras()
+    except Exception as exc:
+        app.logger.warning('Storage sync skipped — list_cameras failed: %s', exc)
         return
 
     from app.services.storage_client import slugify
-    cameras = camera_service.get_all()
+    storage_by_slug = {
+        c.get('slug') or slugify(c.get('name', '')): c
+        for c in storage_cams if c.get('name') and c.get('rtsp_uri')
+    }
+    storage_slugs = set(storage_by_slug)
+
+    db_cameras = camera_service.get_all()
+    db_slugs = {slugify(cam.name) for cam in db_cameras}
+
+    # Push dashboard → storage
     pushed = 0
-    for cam in cameras:
+    for cam in db_cameras:
         if not cam.stream_uri:
             continue
-        if slugify(cam.name) in registered:
+        if slugify(cam.name) in storage_slugs:
             continue
-        if storage_client.register_camera(cam.name, cam.stream_uri):
+        from app.services.camera_service import _camera_metadata
+        if storage_client.register_camera(
+            cam.name, cam.stream_uri, metadata=_camera_metadata(cam),
+        ):
             pushed += 1
-    if pushed:
-        app.logger.info('Storage sync: registered %d camera(s)', pushed)
+
+    # Pull storage → dashboard
+    pulled = 0
+    for slug in storage_slugs - db_slugs:
+        cam_data = storage_by_slug[slug]
+        data = {
+            'add_mode': 'rtsp',
+            'name': cam_data['name'],
+            'stream_uri': cam_data['rtsp_uri'],
+            'ip_address': cam_data.get('ip_address') or '',
+            'port': cam_data.get('port') or 554,
+            'manufacturer': cam_data.get('manufacturer') or 'Pelco',
+            'model': cam_data.get('model'),
+            'location_name': cam_data.get('location_name'),
+            'onvif_username': cam_data.get('onvif_username'),
+            'onvif_password': cam_data.get('onvif_password'),
+        }
+        if cam_data.get('latitude') is not None:
+            data['latitude'] = cam_data['latitude']
+        if cam_data.get('longitude') is not None:
+            data['longitude'] = cam_data['longitude']
+        try:
+            camera_service.create(data)
+            pulled += 1
+        except Exception:
+            app.logger.exception('Storage sync: failed to pull %s', slug)
+
+    if pushed or pulled:
+        app.logger.info('Storage sync: pushed=%d pulled=%d', pushed, pulled)
 
 
 def _seed_demo_data(db, camera_service, server_service):

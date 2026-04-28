@@ -576,8 +576,32 @@ class RecordingManager:
     def add_camera(self, display_name, rtsp_uri, metadata=None):
         """Register a camera under its slug. display_name is preserved for UI.
         metadata is an optional dict of fields (ip_address, model, etc.) that
-        the dashboard's discover endpoint can consume."""
+        the dashboard's discover endpoint can consume.
+
+        Idempotent: if a recorder already exists with the same display_name
+        and rtsp_uri, only metadata is refreshed — the recorder is NOT
+        restarted. This lets the dashboard's periodic 2-way sync POST the
+        same camera repeatedly without thrashing ffmpeg."""
         slug = slugify(display_name)
+
+        # Same-name + same-URI: refresh metadata only, no restart.
+        idempotent = False
+        with self._lock:
+            existing_rec = self._recorders.get(slug)
+            if (existing_rec
+                    and existing_rec.display_name == display_name
+                    and existing_rec.rtsp_uri == rtsp_uri):
+                idempotent = True
+                if metadata:
+                    clean = {k: v for k, v in metadata.items()
+                             if k in self._META_FIELDS and v not in (None, '')}
+                    if clean:
+                        self._metadata[slug] = clean
+        if idempotent:
+            # _save_cameras acquires the lock too, so call it outside.
+            self._save_cameras()
+            return slug
+
         # Stop any existing recorder for this slug OUTSIDE the lock so other
         # API calls aren't blocked for the full ~10s ffmpeg shutdown window.
         existing = None
