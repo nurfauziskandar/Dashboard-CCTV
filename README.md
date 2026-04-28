@@ -31,6 +31,7 @@ Aplikasi dashboard monitoring CCTV berbasis Flask untuk mengintegrasikan sistem 
   - [ONVIF Camera Probe](#onvif-camera-probe)
   - [Server Hardware Monitoring](#server-hardware-monitoring)
   - [Background Polling](#background-polling)
+  - [Summary Report](#summary-report)
 - [Troubleshooting](#troubleshooting)
 - [API Endpoints](#api-endpoints)
 - [Struktur Database](#struktur-database)
@@ -783,36 +784,48 @@ python run.py
 
 #### Mode Production
 
-Dashboard dimulai kosong. Tambahkan kamera dan server melalui UI.
-
-**Linux / macOS:**
+**Linux / macOS (first-time setup + seed):**
 ```bash
 source venv/bin/activate
+FLASK_ENV=production flask seed-sample --days 60   # seed kamera, server, 60 hari snapshot
 FLASK_ENV=production python run.py
 ```
 
-**Windows (Command Prompt):**
-```cmd
-venv\Scripts\activate
-set FLASK_ENV=production
-python run.py
+**Windows — jalankan `run_production.bat` (sudah include setup + seed):**
+```
+run_production.bat
 ```
 
-**Windows (PowerShell):**
-```powershell
-.\venv\Scripts\Activate.ps1
-$env:FLASK_ENV="production"
-python run.py
+Script ini otomatis:
+1. Buat virtualenv jika belum ada
+2. Install / update dependencies
+3. Seed 60 hari historical snapshot (idempotent — aman dijalankan berulang)
+4. Start dashboard
+
+#### Flask CLI: `flask seed-sample`
+
+Seed data dummy untuk kamera, server, dan snapshot historis. Aman dijalankan berulang — entri yang sudah ada di-skip.
+
+```bash
+# Seed semua (12 kamera + 3 server + 30 hari snapshot)
+FLASK_APP=run.py FLASK_ENV=production flask seed-sample
+
+# Seed dengan rentang historis lebih panjang
+FLASK_APP=run.py FLASK_ENV=production flask seed-sample --days 60
+
+# Seed snapshot saja (kamera & server sudah ada)
+flask seed-sample --no-cameras --no-servers
+
+# Seed kamera + server tanpa snapshot
+flask seed-sample --no-snapshots
 ```
 
-**Windows — buat `run_production.bat` di root project:**
-```bat
-@echo off
-call venv\Scripts\activate
-set FLASK_ENV=production
-python run.py
-pause
-```
+| Flag | Default | Keterangan |
+|------|---------|------------|
+| `--cameras / --no-cameras` | `--cameras` | Seed 12 kamera demo Pelco |
+| `--servers / --no-servers` | `--servers` | Seed 3 server storage demo |
+| `--snapshots / --no-snapshots` | `--snapshots` | Seed snapshot harian historis |
+| `--days INTEGER` | `30` | Jumlah hari ke belakang yang di-backfill |
 
 ---
 
@@ -1335,15 +1348,38 @@ Flask-APScheduler menjalankan tiga job berkala:
 | `poll_cameras` | 60 detik | Probe semua kamera via ONVIF, update status |
 | `poll_servers` | 120 detik | Cek health semua server, update data HDD |
 | `daily_snapshot` | Cron 00:00 | Simpan snapshot harian server + camera count untuk Summary Report |
+| `sync_storage` | 60 detik | Sinkronisasi dua arah dashboard ↔ storage: push kamera baru ke storage, pull kamera dari storage yang belum ada di dashboard |
 
 ### Summary Report
 
-Halaman `/summary` menampilkan rekap status setiap server storage + jumlah kamera aktif/non-aktif. Filter by tanggal atau date range.
+Halaman `/summary` menampilkan grafik tren + log data semua server storage.
 
-- **Snapshot harian** — APScheduler menulis baris baru ke tabel `status_snapshot` setiap tengah malam. Satu baris per (tanggal, server) + satu baris aggregate (server_id NULL) untuk total kamera.
-- **Date range** — query rentang tanggal, hasil dikelompokkan per hari.
-- **Today fallback** — jika hari ini belum ada snapshot tersimpan, halaman menampilkan data live saat ini.
-- **Export CSV** — tombol "Export CSV" di kanan atas mengunduh `summary_<from>_to_<to>.csv` berisi semua kolom.
+**Filter:**
+- Date range (default: 30 hari terakhir)
+- Storage server (per-server atau semua server)
+
+**Grafik (Chart.js):**
+
+| Grafik | Tipe | Keterangan |
+|--------|------|------------|
+| CPU Usage | Line | % penggunaan CPU per server per hari |
+| Memory Usage | Line | % penggunaan memory per server per hari |
+| Inlet Temperature | Line | Suhu inlet °C per server per hari |
+| Server Health | Line | Jumlah server OK / Warning / Critical per hari |
+| Camera Active Trend | Area | Kamera aktif vs non-aktif per hari |
+| HDD Total | Line | Jumlah HDD per server per hari |
+
+**Data Log:**
+Satu flat table dengan pagination 25 baris/halaman + search real-time. Kolom: Tanggal, Server, Status, Health, CPU, MEM, Temp, HDD, Alerts, Cam Aktif, Cam Off.
+
+**Export:**
+- **Print / PDF** — tombol di kanan atas. Print dialog browser → "Save as PDF" menghasilkan A4 landscape dengan header laporan (periode, nama server, tanggal cetak). Sidebar/filter tersembunyi, semua grafik + tabel tampil.
+- **CSV** — tombol di header tabel Data Log. Download `summary_<from>_to_<to>.csv`.
+
+**Cara kerja snapshot:**
+- APScheduler menulis ke tabel `status_snapshot` setiap tengah malam. Satu baris per (tanggal, server) + satu baris aggregate (server_id NULL) untuk total kamera.
+- Jika hari ini belum ada snapshot tersimpan, halaman menampilkan data live saat ini.
+- Historical data bisa di-backfill dengan `flask seed-sample --days N`.
 
 Field per snapshot:
 
@@ -1351,20 +1387,13 @@ Field per snapshot:
 |-------|--------|
 | `server_name` | Server.name |
 | `is_online` | Server.is_online |
-| `health_rollup` | OK / Warning / Critical (dari iDRAC Status.HealthRollup) |
+| `health_rollup` | OK / Warning / Critical |
 | `inlet_temp` | Inlet temp (Celsius) |
-| `cpu_usage` | CPU % (dari Redfish ProcessorSummary.CpuUsagePercent) |
-| `memory_usage` | Memory % (dari Redfish MemorySummary.MemoryUsagePercent) |
+| `cpu_usage` | CPU % |
+| `memory_usage` | Memory % |
 | `hdd_total` | jumlah HDD |
 | `hdd_alerts` | jumlah HDD dengan health Warning/Critical |
-| `cam_total` / `cam_active` / `cam_inactive` | total/aktif/inaktif camera saat snapshot |
-
-Interval dapat dikonfigurasi di `config.py`:
-
-```python
-CAMERA_POLL_INTERVAL = 30   # Poll kamera tiap 30 detik
-SERVER_POLL_INTERVAL = 60   # Poll server tiap 60 detik
-```
+| `cam_total` / `cam_active` / `cam_inactive` | total/aktif/inaktif kamera saat snapshot |
 
 ---
 
@@ -1550,11 +1579,22 @@ python -c "from wsdiscovery.discovery import ThreadedWSDiscovery; print('OK')"
 | GET | `/cameras/<id>` | Detail kamera (HTML) |
 | GET | `/cameras/add` | Form tambah kamera (HTML) |
 | POST | `/cameras/add` | Submit tambah kamera |
-| POST | `/cameras/<id>/delete` | Hapus kamera |
+| POST | `/cameras/<id>/delete` | Hapus kamera dari dashboard (tidak menghapus dari storage) |
+| POST | `/cameras/import_from_storage` | Import semua kamera dari storage server ke dashboard |
 | GET | `/cameras/api/list` | JSON: semua kamera |
 | GET | `/cameras/api/list?status=active` | JSON: kamera aktif |
 | POST | `/cameras/api/<id>/refresh` | JSON: probe ulang satu kamera |
 | GET | `/cameras/api/discover` | JSON: scan jaringan ONVIF |
+| GET | `/cameras/<id>/playback_files` | JSON: daftar file rekaman untuk auto-refresh playback |
+
+### Summary
+
+| Method | Endpoint | Keterangan |
+|--------|----------|------------|
+| GET | `/summary/` | Halaman summary report + grafik (HTML) |
+| GET | `/summary/?from=YYYY-MM-DD&to=YYYY-MM-DD` | Filter date range |
+| GET | `/summary/?server_id=<id>` | Filter per storage server |
+| GET | `/summary/export.csv` | Download CSV (mendukung filter `from`, `to`, `server_id`) |
 
 ### Servers
 

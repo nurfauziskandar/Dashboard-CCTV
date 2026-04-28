@@ -2,6 +2,7 @@ import os
 import logging
 from datetime import timedelta
 from logging.handlers import RotatingFileHandler
+import click
 from flask import Flask, session, redirect, url_for, request
 from config import config_map
 
@@ -173,6 +174,125 @@ def create_app(config_name=None):
         except Exception as exc:
             app.logger.warning('Initial snapshot capture failed: %s', exc)
 
+    @app.cli.command('seed-sample')
+    @click.option('--cameras/--no-cameras', default=True, help='Seed sample cameras')
+    @click.option('--servers/--no-servers', default=True, help='Seed sample servers')
+    @click.option('--snapshots/--no-snapshots', default=True, help='Seed 30-day historical snapshots')
+    @click.option('--days', default=30, show_default=True, help='Number of historical days to backfill')
+    def seed_sample(cameras, servers, snapshots, days):
+        """Seed sample cameras, servers, and historical snapshots for reports.
+
+        Safe to run in production — skips entries that already exist by name.
+        Snapshots are only inserted for dates that have no existing rows.
+        """
+        import random
+        from datetime import date, timedelta
+        from app.extensions import db
+        from app.services.camera_service import CameraService
+        from app.services.server_service import ServerService
+        from app.models.camera import Camera
+        from app.models.server import Server
+        from app.models.snapshot import StatusSnapshot
+
+        with app.app_context():
+            cam_svc = CameraService(app)
+            srv_svc = ServerService(app)
+            cam_count = 0
+            srv_count = 0
+
+            if cameras:
+                from app.services.demo.fake_cameras import DEMO_CAMERAS
+                existing_names = {c.name for c in Camera.query.all()}
+                for cam_data in DEMO_CAMERAS:
+                    if cam_data['name'] in existing_names:
+                        click.echo(f'  skip camera: {cam_data["name"]} (already exists)')
+                        continue
+                    try:
+                        cam_svc.create(cam_data)
+                        cam_count += 1
+                        click.echo(f'  + camera: {cam_data["name"]}')
+                    except Exception as exc:
+                        db.session.rollback()
+                        click.echo(f'  ! camera {cam_data["name"]} failed: {exc}', err=True)
+
+            if servers:
+                from app.services.demo.fake_hardware import DEMO_SERVERS
+                existing_names = {s.name for s in Server.query.all()}
+                for srv_data in DEMO_SERVERS:
+                    if srv_data['name'] in existing_names:
+                        click.echo(f'  skip server: {srv_data["name"]} (already exists)')
+                        continue
+                    try:
+                        srv_svc.create(srv_data)
+                        srv_count += 1
+                        click.echo(f'  + server: {srv_data["name"]}')
+                    except Exception as exc:
+                        db.session.rollback()
+                        click.echo(f'  ! server {srv_data["name"]} failed: {exc}', err=True)
+
+            click.echo(f'Done. Added {cam_count} camera(s), {srv_count} server(s).')
+
+            if not snapshots:
+                return
+
+            # Backfill historical snapshots
+            all_servers = Server.query.all()
+            if not all_servers:
+                click.echo('  No servers in DB — skipping snapshot seed.')
+                return
+
+            cam_total = Camera.query.count()
+            today = date.today()
+            snap_inserted = 0
+
+            # Stable per-server random seed so data looks consistent day-to-day
+            srv_base = {srv.id: hash(srv.name) & 0xFFFF for srv in all_servers}
+
+            for days_ago in range(days, -1, -1):
+                d = today - timedelta(days=days_ago)
+
+                # Skip if aggregate row already exists for this date
+                if StatusSnapshot.query.filter_by(snapshot_date=d, server_id=None).first():
+                    continue
+
+                # Camera aggregate
+                cam_active = random.randint(max(0, int(cam_total * 0.75)), cam_total)
+                agg = StatusSnapshot(snapshot_date=d, server_id=None)
+                agg.cam_total = cam_total
+                agg.cam_active = cam_active
+                agg.cam_inactive = cam_total - cam_active
+                db.session.add(agg)
+
+                for srv in all_servers:
+                    if StatusSnapshot.query.filter_by(snapshot_date=d, server_id=srv.id).first():
+                        continue
+                    rng = random.Random(srv_base[srv.id] + days_ago)
+                    is_online = rng.random() > 0.04
+                    health = rng.choices(
+                        ['OK', 'OK', 'Warning', 'Critical'],
+                        weights=[14, 4, 1, 0.3],
+                    )[0]
+                    hdd_total = rng.randint(8, 16)
+                    hdd_alerts = 0 if health == 'OK' else rng.randint(1, 3)
+                    row = StatusSnapshot(snapshot_date=d, server_id=srv.id)
+                    row.server_name = srv.name
+                    row.is_online = is_online
+                    row.health_rollup = health
+                    row.inlet_temp = round(rng.uniform(21.0, 34.0), 1) if is_online else None
+                    row.cpu_usage = round(rng.uniform(12.0, 68.0), 1) if is_online else None
+                    row.memory_usage = round(rng.uniform(30.0, 82.0), 1) if is_online else None
+                    row.hdd_total = hdd_total
+                    row.hdd_alerts = hdd_alerts
+                    row.cam_total = cam_total
+                    row.cam_active = cam_active
+                    row.cam_inactive = cam_total - cam_active
+                    db.session.add(row)
+
+                db.session.commit()
+                snap_inserted += 1
+
+            click.echo(f'Snapshots: backfilled {snap_inserted} day(s) ({days} days range).')
+
     return app
 
 
@@ -201,24 +321,28 @@ def _sync_cameras_with_storage(app, camera_service, storage_client):
     storage_slugs = set(storage_by_slug)
 
     db_cameras = camera_service.get_all()
-    db_slugs = {slugify(cam.name) for cam in db_cameras}
+    db_by_slug = {slugify(cam.name): cam for cam in db_cameras}
+    db_slugs = set(db_by_slug)
 
     # Push dashboard → storage
     pushed = 0
+    from app.services.camera_service import _camera_metadata
     for cam in db_cameras:
         if not cam.stream_uri:
             continue
         if slugify(cam.name) in storage_slugs:
             continue
-        from app.services.camera_service import _camera_metadata
         if storage_client.register_camera(
             cam.name, cam.stream_uri, metadata=_camera_metadata(cam),
         ):
             pushed += 1
 
     # Pull storage → dashboard
+    # Case A: slug not in DB at all → create
+    # Case B: slug in DB but stream_uri empty → patch with storage data
     pulled = 0
-    for slug in storage_slugs - db_slugs:
+    patched = 0
+    for slug in storage_slugs:
         cam_data = storage_by_slug[slug]
         data = {
             'add_mode': 'rtsp',
@@ -236,14 +360,22 @@ def _sync_cameras_with_storage(app, camera_service, storage_client):
             data['latitude'] = cam_data['latitude']
         if cam_data.get('longitude') is not None:
             data['longitude'] = cam_data['longitude']
-        try:
-            camera_service.create(data)
-            pulled += 1
-        except Exception:
-            app.logger.exception('Storage sync: failed to pull %s', slug)
 
-    if pushed or pulled:
-        app.logger.info('Storage sync: pushed=%d pulled=%d', pushed, pulled)
+        if slug not in db_slugs:
+            try:
+                camera_service.create(data)
+                pulled += 1
+            except Exception:
+                app.logger.exception('Storage sync: failed to pull %s', slug)
+        elif not db_by_slug[slug].stream_uri:
+            try:
+                camera_service.update(db_by_slug[slug].id, data)
+                patched += 1
+            except Exception:
+                app.logger.exception('Storage sync: failed to patch %s', slug)
+
+    if pushed or pulled or patched:
+        app.logger.info('Storage sync: pushed=%d pulled=%d patched=%d', pushed, pulled, patched)
 
 
 def _seed_demo_data(db, camera_service, server_service):

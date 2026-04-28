@@ -136,11 +136,8 @@ class CameraService:
     def delete(self, camera_id):
         camera = db.session.get(Camera, camera_id)
         if camera:
-            name = camera.name
             db.session.delete(camera)
             db.session.commit()
-            if self.storage_client and self.storage_client.enabled:
-                self.storage_client.unregister_camera(name)
             return True
         return False
 

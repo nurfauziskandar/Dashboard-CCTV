@@ -224,16 +224,14 @@ def import_from_storage():
         flash('Storage tidak punya kamera terdaftar (atau tidak bisa dijangkau).', 'info')
         return redirect(url_for('cameras.index'))
 
-    existing_slugs = {slugify(c.name) for c in camera_service.get_all()}
+    existing_by_slug = {slugify(c.name): c for c in camera_service.get_all()}
     imported = 0
+    patched = 0
     skipped = 0
     failed = 0
     for cam in storage_cams:
         slug = cam.get('slug') or slugify(cam.get('name', ''))
         if not slug or not cam.get('name') or not cam.get('rtsp_uri'):
-            continue
-        if slug in existing_slugs:
-            skipped += 1
             continue
         data = {
             'add_mode': 'rtsp',
@@ -251,24 +249,41 @@ def import_from_storage():
             data['latitude'] = cam['latitude']
         if cam.get('longitude') is not None:
             data['longitude'] = cam['longitude']
-        try:
-            camera_service.create(data)
-            imported += 1
-        except Exception as exc:
-            current_app.logger.warning(
-                'import_from_storage: failed for %s: %s', cam.get('name'), exc,
-            )
-            failed += 1
+
+        existing = existing_by_slug.get(slug)
+        if existing is None:
+            try:
+                camera_service.create(data)
+                imported += 1
+            except Exception as exc:
+                current_app.logger.warning(
+                    'import_from_storage: failed for %s: %s', cam.get('name'), exc,
+                )
+                failed += 1
+        elif not existing.stream_uri:
+            # Camera exists but has no RTSP — patch it with storage data
+            try:
+                camera_service.update(existing.id, data)
+                patched += 1
+            except Exception as exc:
+                current_app.logger.warning(
+                    'import_from_storage: patch failed for %s: %s', cam.get('name'), exc,
+                )
+                failed += 1
+        else:
+            skipped += 1
 
     msg_parts = []
     if imported:
         msg_parts.append(f'{imported} kamera diimpor')
+    if patched:
+        msg_parts.append(f'{patched} kamera diperbarui (RTSP diisi dari storage)')
     if skipped:
         msg_parts.append(f'{skipped} sudah ada')
     if failed:
         msg_parts.append(f'{failed} gagal')
     flash(', '.join(msg_parts) or 'Tidak ada perubahan.',
-          'success' if imported else 'info')
+          'success' if (imported or patched) else 'info')
     return redirect(url_for('cameras.index'))
 
 

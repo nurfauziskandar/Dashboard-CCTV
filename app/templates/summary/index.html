@@ -4,38 +4,181 @@
 {% block page_title %}Summary Report{% endblock %}
 
 {% block topbar_actions %}
-<a href="{{ url_for('summary.export_csv', **{'from': date_from.isoformat(), 'to': date_to.isoformat()}) }}"
-   class="btn btn-ghost btn-sm">
-    <i class="fa-solid fa-file-csv me-1"></i> Export CSV
-</a>
+<button onclick="window.print()" class="btn btn-ghost btn-sm">
+    <i class="fa-solid fa-print me-1"></i> Print / PDF
+</button>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+/* ── Print / PDF (A4) ── */
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 14mm 12mm 14mm 12mm;
+    }
+
+    /* Hide chrome */
+    .sidebar, .topbar, .sidebar-overlay, #filterCard, #printBtn,
+    #logPager, #logSearch { display: none !important; }
+
+    /* Layout reset */
+    .app-wrapper  { display: block !important; }
+    .main-content { margin-left: 0 !important; padding: 0 !important; width: 100% !important; }
+    .content-area { padding: 0 !important; }
+
+    /* Colours */
+    body, .card { background: #fff !important; color: #111 !important; }
+    .card        { border: 1px solid #ccc !important; box-shadow: none !important; }
+    .card-header { background: #f3f3f3 !important; color: #111 !important; border-bottom: 1px solid #ccc !important; }
+    table        { color: #111 !important; }
+    th, td       { border-color: #ccc !important; }
+
+    /* Page breaks */
+    .card           { page-break-inside: avoid; margin-bottom: 6mm !important; }
+    #chartsSection  { page-break-after: always; }
+    .row            { page-break-inside: avoid; }
+
+    /* Charts */
+    canvas { max-width: 100% !important; }
+
+    /* Links */
+    a { color: #111 !important; text-decoration: none !important; }
+
+    /* Print header visible */
+    #printHeader { display: block !important; }
+}
+</style>
 {% endblock %}
 
 {% block content %}
-<div class="card mb-3">
+
+{# Print-only report header (hidden on screen) #}
+<div id="printHeader" style="display:none; margin-bottom:10mm;">
+    <h2 style="margin:0; font-size:18pt; font-weight:700;">Summary Report — Pelco CCTV Monitor</h2>
+    <p style="margin:2mm 0 0; font-size:10pt; color:#444;">
+        Periode: <strong>{{ date_from.isoformat() }}</strong> &rarr; <strong>{{ date_to.isoformat() }}</strong>
+        {% if server_id_filter %}
+        &nbsp;&nbsp;|&nbsp;&nbsp; Server:
+        {% for srv in all_servers %}{% if srv.id|string == server_id_filter %}<strong>{{ srv.name }}</strong>{% endif %}{% endfor %}
+        {% else %}
+        &nbsp;&nbsp;|&nbsp;&nbsp; Semua Server
+        {% endif %}
+        &nbsp;&nbsp;|&nbsp;&nbsp; Dicetak: <strong id="printDate"></strong>
+    </p>
+    <hr style="border:none; border-top:1.5px solid #333; margin:4mm 0 6mm;">
+</div>
+
+{# ── Filter Bar ── #}
+<div class="card mb-3" id="filterCard">
     <div class="card-body">
         <form method="GET" class="row g-2 align-items-end">
-            <div class="col-sm-4">
-                <label class="form-label" style="font-size: 0.8rem;">From</label>
+            <div class="col-sm-3">
+                <label class="form-label" style="font-size:0.8rem;">From</label>
                 <input type="date" class="form-control" name="from" value="{{ date_from.isoformat() }}">
             </div>
-            <div class="col-sm-4">
-                <label class="form-label" style="font-size: 0.8rem;">To</label>
+            <div class="col-sm-3">
+                <label class="form-label" style="font-size:0.8rem;">To</label>
                 <input type="date" class="form-control" name="to" value="{{ date_to.isoformat() }}">
             </div>
-            <div class="col-sm-4">
-                <button type="submit" class="btn btn-accent btn-sm">
+            <div class="col-sm-3">
+                <label class="form-label" style="font-size:0.8rem;">Storage Server</label>
+                <select class="form-select" name="server_id">
+                    <option value="" {% if not server_id_filter %}selected{% endif %}>All Servers</option>
+                    {% for srv in all_servers %}
+                    <option value="{{ srv.id }}"
+                        {% if server_id_filter == srv.id|string %}selected{% endif %}>
+                        {{ srv.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-3">
+                <button type="submit" class="btn btn-accent btn-sm me-1">
                     <i class="fa-solid fa-magnifying-glass me-1"></i> Apply
                 </button>
-                <a href="{{ url_for('summary.index') }}" class="btn btn-ghost btn-sm">Today</a>
+                <a href="{{ url_for('summary.index') }}" class="btn btn-ghost btn-sm">Reset</a>
             </div>
         </form>
-        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 8px;">
-            Range: {{ date_from.isoformat() }} -> {{ date_to.isoformat() }}.
-            Today live data shown if no snapshot yet. Daily snapshots captured automatically at midnight.
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:8px;">
+            Range: {{ date_from.isoformat() }} &rarr; {{ date_to.isoformat() }}.
+            {% if server_id_filter %}
+                {% for srv in all_servers %}{% if srv.id|string == server_id_filter %}Filtered: <strong>{{ srv.name }}</strong>{% endif %}{% endfor %}
+            {% else %}
+                Showing all servers.
+            {% endif %}
         </div>
     </div>
 </div>
 
+{# ── Charts Section ── #}
+{% if sorted_dates %}
+<div id="chartsSection">
+
+    {# Row 1: CPU + Memory line charts #}
+    <div class="row g-3 mb-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-microchip me-2"></i>CPU Usage (%)</div>
+                <div class="card-body" style="min-height:220px;">
+                    <canvas id="chartCpu"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-memory me-2"></i>Memory Usage (%)</div>
+                <div class="card-body" style="min-height:220px;">
+                    <canvas id="chartMemory"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Row 2: Inlet Temp + Server Health line #}
+    <div class="row g-3 mb-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-temperature-half me-2"></i>Inlet Temperature (&deg;C)</div>
+                <div class="card-body" style="min-height:220px;">
+                    <canvas id="chartTemp"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-heart-pulse me-2"></i>Server Health (OK / Warning / Critical)</div>
+                <div class="card-body" style="min-height:220px;">
+                    <canvas id="chartHealth"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Row 3: Camera trend + HDD Total #}
+    <div class="row g-3 mb-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-video me-2"></i>Camera Active Trend</div>
+                <div class="card-body" style="min-height:220px;">
+                    <canvas id="chartCamTrend"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-hard-drive me-2"></i>HDD Total per Server</div>
+                <div class="card-body" style="min-height:220px;">
+                    <canvas id="chartHddTotal"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>{# /chartsSection #}
+{% endif %}
+
+{# ── Data Log (flat table, paginated) ── #}
 {% if not sorted_dates %}
 <div class="empty-state">
     <i class="fa-solid fa-chart-line"></i>
@@ -43,91 +186,331 @@
 </div>
 {% else %}
 
+{# Build flat rows: newest date first, then per-server #}
+{% set flat_rows = [] %}
 {% for d in sorted_dates %}
-{% set bundle = by_date[d] %}
-{% set agg = bundle.aggregate %}
-<div class="card mb-3">
-    <div class="card-header d-flex align-items-center justify-content-between">
-        <span>
-            <i class="fa-solid fa-calendar-day me-2"></i>
-            <strong>{{ d.strftime('%A, %d %B %Y') }}</strong>
-        </span>
-        {% if agg %}
-        <span style="font-size: 0.85rem;">
-            <span style="color: var(--success);">
-                <i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>
-                {{ agg.cam_active|default(0, true) }} active
-            </span>
-            <span style="color: var(--text-muted);">/</span>
-            <span style="color: var(--danger);">
-                <i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>
-                {{ agg.cam_inactive|default(0, true) }} inactive
-            </span>
-            <span style="color: var(--text-muted);">/</span>
-            <span style="color: var(--text-secondary);">{{ agg.cam_total|default(0, true) }} total cameras</span>
-        </span>
-        {% endif %}
-    </div>
-    <div class="card-body p-0">
-        {% if bundle.servers %}
-        <div class="table-responsive">
-            <table class="table table-hover mb-0" style="font-size: 0.85rem;">
-                <thead>
-                    <tr>
-                        <th>Server</th>
-                        <th>Status</th>
-                        <th>Health</th>
-                        <th>Inlet</th>
-                        <th>CPU</th>
-                        <th>MEM</th>
-                        <th>Drives</th>
-                        <th>Alerts</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for s in bundle.servers %}
-                    <tr>
-                        <td class="fw-semibold">{{ s.server_name or '--' }}</td>
-                        <td>
-                            {% if s.is_online %}
-                            <span style="color: var(--success);"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>Online</span>
-                            {% else %}
-                            <span style="color: var(--danger);"><i class="fa-solid fa-circle me-1" style="font-size: 6px;"></i>Offline</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if s.health_rollup == 'OK' %}
-                            <span style="color: var(--success); font-weight: 600;">OK</span>
-                            {% elif s.health_rollup == 'Warning' %}
-                            <span style="color: var(--warning); font-weight: 600;">Warning</span>
-                            {% elif s.health_rollup == 'Critical' %}
-                            <span style="color: var(--danger); font-weight: 600;">Critical</span>
-                            {% else %}<span style="color: var(--text-muted);">{{ s.health_rollup or '--' }}</span>{% endif %}
-                        </td>
-                        <td>{% if s.inlet_temp is not none %}{{ s.inlet_temp|round(1) }}C{% else %}--{% endif %}</td>
-                        <td>{% if s.cpu_usage is not none %}{{ s.cpu_usage|round(1) }}%{% else %}--{% endif %}</td>
-                        <td>{% if s.memory_usage is not none %}{{ s.memory_usage|round(1) }}%{% else %}--{% endif %}</td>
-                        <td>{{ s.hdd_total|default(0, true) }}</td>
-                        <td>
-                            {% if s.hdd_alerts and s.hdd_alerts > 0 %}
-                            <span style="color: var(--warning); font-weight: 600;">{{ s.hdd_alerts }}</span>
-                            {% else %}
-                            <span style="color: var(--text-muted);">0</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="text-center py-3" style="color: var(--text-muted); font-size: 0.85rem;">
-            No server data on this date.
-        </div>
-        {% endif %}
-    </div>
-</div>
+  {% set bundle = by_date[d] %}
+  {% set agg = bundle.aggregate %}
+  {% for s in bundle.servers %}
+    {% if flat_rows.append({'date': d, 'agg': agg, 's': s}) %}{% endif %}
+  {% endfor %}
+  {% if not bundle.servers and agg %}
+    {% if flat_rows.append({'date': d, 'agg': agg, 's': none}) %}{% endif %}
+  {% endif %}
 {% endfor %}
 
+<div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <span><i class="fa-solid fa-table me-2"></i>Data Log
+            <span class="badge bg-secondary ms-2" id="logBadge">{{ flat_rows|length }} baris</span>
+        </span>
+        <div class="d-flex align-items-center gap-2 ms-auto">
+            <input type="text" id="logSearch" class="form-control form-control-sm"
+                   placeholder="Cari server / tanggal..." style="width:180px;">
+            <a href="{{ url_for('summary.export_csv', **{'from': date_from.isoformat(), 'to': date_to.isoformat(), 'server_id': server_id_filter}) }}"
+               class="btn btn-ghost btn-sm">
+                <i class="fa-solid fa-file-csv me-1"></i> CSV
+            </a>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0" id="logTable" style="font-size:0.82rem;">
+            <thead>
+                <tr>
+                    <th style="white-space:nowrap;">Tanggal</th>
+                    <th>Server</th>
+                    <th>Status</th>
+                    <th>Health</th>
+                    <th>CPU</th>
+                    <th>MEM</th>
+                    <th>Temp</th>
+                    <th>HDD</th>
+                    <th>Alerts</th>
+                    <th>Cam Aktif</th>
+                    <th>Cam Off</th>
+                </tr>
+            </thead>
+            <tbody id="logBody">
+                {% for row in flat_rows %}
+                {% set s = row.s %}
+                {% set agg = row.agg %}
+                <tr>
+                    <td style="white-space:nowrap; color:var(--text-muted);">{{ row.date.strftime('%d %b %Y') }}</td>
+                    <td class="fw-semibold">{{ s.server_name if s else '--' }}</td>
+                    <td>
+                        {% if s %}
+                            {% if s.is_online %}
+                            <span style="color:var(--success);"><i class="fa-solid fa-circle" style="font-size:6px;"></i> Online</span>
+                            {% else %}
+                            <span style="color:var(--danger);"><i class="fa-solid fa-circle" style="font-size:6px;"></i> Offline</span>
+                            {% endif %}
+                        {% else %}--{% endif %}
+                    </td>
+                    <td>
+                        {% if s %}
+                            {% if s.health_rollup == 'OK' %}<span style="color:var(--success);font-weight:600;">OK</span>
+                            {% elif s.health_rollup == 'Warning' %}<span style="color:var(--warning);font-weight:600;">Warning</span>
+                            {% elif s.health_rollup == 'Critical' %}<span style="color:var(--danger);font-weight:600;">Critical</span>
+                            {% else %}<span style="color:var(--text-muted);">--</span>{% endif %}
+                        {% else %}--{% endif %}
+                    </td>
+                    <td>{% if s and s.cpu_usage is not none %}{{ s.cpu_usage|round(1) }}%{% else %}--{% endif %}</td>
+                    <td>{% if s and s.memory_usage is not none %}{{ s.memory_usage|round(1) }}%{% else %}--{% endif %}</td>
+                    <td>{% if s and s.inlet_temp is not none %}{{ s.inlet_temp|round(1) }}&deg;C{% else %}--{% endif %}</td>
+                    <td>{{ s.hdd_total if s and s.hdd_total else '--' }}</td>
+                    <td>
+                        {% if s and s.hdd_alerts and s.hdd_alerts > 0 %}
+                        <span style="color:var(--warning);font-weight:600;">{{ s.hdd_alerts }}</span>
+                        {% else %}<span style="color:var(--text-muted);">0</span>{% endif %}
+                    </td>
+                    <td>{{ agg.cam_active if agg and agg.cam_active is not none else '--' }}</td>
+                    <td>{{ agg.cam_inactive if agg and agg.cam_inactive is not none else '--' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {# Pagination bar — hidden during print #}
+    <div class="card-footer d-flex align-items-center justify-content-between flex-wrap gap-2" id="logPager">
+        <div style="font-size:0.8rem; color:var(--text-muted);" id="logInfo"></div>
+        <div class="d-flex gap-1" id="logPages"></div>
+    </div>
+</div>
+
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+// ── Flat table: search + pagination ──
+(function () {
+    var PAGE_SIZE = 25;
+    var body   = document.getElementById('logBody');
+    var search = document.getElementById('logSearch');
+    var info   = document.getElementById('logInfo');
+    var pages  = document.getElementById('logPages');
+    var badge  = document.getElementById('logBadge');
+    if (!body) return;
+
+    var allRows = Array.from(body.querySelectorAll('tr'));
+    var visibleRows = allRows.slice();
+    var currentPage = 1;
+
+    function filter() {
+        var q = (search.value || '').toLowerCase().trim();
+        visibleRows = allRows.filter(function (tr) {
+            return !q || tr.textContent.toLowerCase().includes(q);
+        });
+        currentPage = 1;
+        render();
+    }
+
+    function render() {
+        var total = visibleRows.length;
+        var totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        currentPage = Math.min(currentPage, totalPages);
+        var start = (currentPage - 1) * PAGE_SIZE;
+        var end   = Math.min(start + PAGE_SIZE, total);
+
+        allRows.forEach(function (tr) { tr.style.display = 'none'; });
+        visibleRows.slice(start, end).forEach(function (tr) { tr.style.display = ''; });
+
+        if (badge) badge.textContent = total + ' baris';
+        if (info) info.textContent = total === 0
+            ? 'Tidak ada data'
+            : 'Baris ' + (start + 1) + '-' + end + ' dari ' + total;
+
+        // Pagination buttons (max 7 shown)
+        if (!pages) return;
+        pages.innerHTML = '';
+        if (totalPages <= 1) return;
+
+        function btn(label, page, active, disabled) {
+            var b = document.createElement('button');
+            b.textContent = label;
+            b.className   = 'btn btn-sm ' + (active ? 'btn-accent' : 'btn-ghost');
+            b.disabled    = disabled;
+            b.style.minWidth = '34px';
+            b.addEventListener('click', function () { currentPage = page; render(); });
+            pages.appendChild(b);
+        }
+
+        btn('«', 1, false, currentPage === 1);
+        btn('‹', currentPage - 1, false, currentPage === 1);
+
+        var lo = Math.max(1, currentPage - 2);
+        var hi = Math.min(totalPages, lo + 4);
+        lo = Math.max(1, hi - 4);
+        for (var p = lo; p <= hi; p++) btn(p, p, p === currentPage, false);
+
+        btn('›', currentPage + 1, false, currentPage === totalPages);
+        btn('»', totalPages, false, currentPage === totalPages);
+    }
+
+    if (search) search.addEventListener('input', filter);
+    render();
+
+    // Print: show all rows
+    window.addEventListener('beforeprint', function () {
+        allRows.forEach(function (tr) { tr.style.display = ''; });
+        if (pages) pages.style.display = 'none';
+    });
+    window.addEventListener('afterprint', function () {
+        if (pages) pages.style.display = '';
+        render();
+    });
+})();
+</script>
+<script>
+(function () {
+    var RAW = {{ chart_data_json | safe }};
+    if (!RAW || !RAW.labels || !RAW.labels.length) return;
+
+    var isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    var gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
+    var textColor = isDark ? '#adb5bd' : '#6c757d';
+
+    var PALETTE = [
+        '#4e9fdd','#f5a623','#7ed321','#9b59b6','#1abc9c',
+        '#e74c3c','#f39c12','#2ecc71','#3498db','#e67e22',
+    ];
+
+    var labels = RAW.labels;
+    var servers = RAW.servers;   // { serverName: { cpu, memory, inlet_temp, hdd_alerts, hdd_total, online } }
+    var serverNames = Object.keys(servers);
+
+    // ── Shared options ──
+    function lineOpts(title, unit) {
+        return {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { labels: { color: textColor, boxWidth: 12, font: { size: 11 } } },
+                tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + (ctx.parsed.y !== null ? ctx.parsed.y + (unit || '') : 'N/A'); } } },
+            },
+            scales: {
+                x: { ticks: { color: textColor, maxTicksLimit: 10, font: { size: 10 } }, grid: { color: gridColor } },
+                y: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor }, beginAtZero: true },
+            },
+        };
+    }
+
+    function makeLineDatasets(metric, unit) {
+        return serverNames.map(function(name, i) {
+            return {
+                label: name,
+                data: servers[name][metric],
+                borderColor: PALETTE[i % PALETTE.length],
+                backgroundColor: PALETTE[i % PALETTE.length] + '22',
+                tension: 0.3,
+                pointRadius: labels.length > 14 ? 2 : 4,
+                fill: false,
+                spanGaps: true,
+            };
+        });
+    }
+
+    // ── CPU line ──
+    var cpuEl = document.getElementById('chartCpu');
+    if (cpuEl && serverNames.length) {
+        new Chart(cpuEl, { type: 'line', data: { labels: labels, datasets: makeLineDatasets('cpu') }, options: lineOpts('CPU', '%') });
+    }
+
+    // ── Memory line ──
+    var memEl = document.getElementById('chartMemory');
+    if (memEl && serverNames.length) {
+        new Chart(memEl, { type: 'line', data: { labels: labels, datasets: makeLineDatasets('memory') }, options: lineOpts('Mem', '%') });
+    }
+
+    // ── Inlet Temp line ──
+    var tempEl = document.getElementById('chartTemp');
+    if (tempEl && serverNames.length) {
+        new Chart(tempEl, { type: 'line', data: { labels: labels, datasets: makeLineDatasets('inlet_temp') }, options: lineOpts('Temp', '°C') });
+    }
+
+    // ── Server Health line (OK / Warning / Critical count per day) ──
+    var healthEl = document.getElementById('chartHealth');
+    if (healthEl && RAW.health_ts) {
+        var ht = RAW.health_ts;
+        new Chart(healthEl, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'OK',       data: ht['OK'],       borderColor: '#7ed321', backgroundColor: '#7ed32122', tension: 0.3, fill: false, spanGaps: true, pointRadius: labels.length > 14 ? 2 : 4 },
+                    { label: 'Warning',  data: ht['Warning'],  borderColor: '#f5a623', backgroundColor: '#f5a62322', tension: 0.3, fill: false, spanGaps: true, pointRadius: labels.length > 14 ? 2 : 4 },
+                    { label: 'Critical', data: ht['Critical'], borderColor: '#e74c3c', backgroundColor: '#e74c3c22', tension: 0.3, fill: false, spanGaps: true, pointRadius: labels.length > 14 ? 2 : 4 },
+                ],
+            },
+            options: lineOpts('Health', ' servers'),
+        });
+    }
+
+    // ── Camera trend line (stacked area) ──
+    var camTrendEl = document.getElementById('chartCamTrend');
+    if (camTrendEl) {
+        new Chart(camTrendEl, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Active',
+                        data: RAW.cameras.active,
+                        borderColor: '#7ed321',
+                        backgroundColor: '#7ed32122',
+                        tension: 0.3,
+                        fill: true,
+                        spanGaps: true,
+                        pointRadius: labels.length > 14 ? 2 : 4,
+                    },
+                    {
+                        label: 'Inactive',
+                        data: RAW.cameras.inactive,
+                        borderColor: '#e74c3c',
+                        backgroundColor: '#e74c3c22',
+                        tension: 0.3,
+                        fill: true,
+                        spanGaps: true,
+                        pointRadius: labels.length > 14 ? 2 : 4,
+                    },
+                ],
+            },
+            options: lineOpts('Cameras', ''),
+        });
+    }
+
+    // ── HDD Total line ──
+    var hddTotalEl = document.getElementById('chartHddTotal');
+    if (hddTotalEl && serverNames.length) {
+        new Chart(hddTotalEl, {
+            type: 'line',
+            data: { labels: labels, datasets: makeLineDatasets('hdd_total') },
+            options: lineOpts('HDD', ' drives'),
+        });
+    }
+
+})();
+
+// Inject print date and force light background before print
+(function () {
+    var pd = document.getElementById('printDate');
+    if (pd) {
+        pd.textContent = new Date().toLocaleString('id-ID', {
+            day: '2-digit', month: 'long', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+        });
+    }
+    window.addEventListener('beforeprint', function () {
+        // Force white background so dark-theme doesn't bleed into PDF
+        document.documentElement.setAttribute('data-bs-theme', 'light');
+    });
+    window.addEventListener('afterprint', function () {
+        // Restore original theme
+        var saved = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-bs-theme', saved);
+    });
+})();
+</script>
 {% endblock %}
