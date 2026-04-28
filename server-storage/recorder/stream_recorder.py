@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import time
 import json
 import shutil
@@ -13,12 +14,41 @@ import cv2
 
 logger = logging.getLogger(__name__)
 
+_IS_WINDOWS = sys.platform == 'win32'
+
 # Strip path-unsafe chars AND % so ffmpeg's strftime never misinterprets the name
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*%\x00-\x1f]')
 
 
 def _safe_filename(name):
     return _UNSAFE_CHARS.sub('_', name).strip('. ')
+
+
+def _popen_kwargs():
+    """Make the child its own process group so we can send a clean
+    interrupt signal without taking down the parent.
+
+    Windows needs CREATE_NEW_PROCESS_GROUP to receive CTRL_BREAK_EVENT.
+    POSIX uses start_new_session so SIGINT only hits the child group.
+    """
+    if _IS_WINDOWS:
+        return {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {'start_new_session': True}
+
+
+def _interrupt(proc, name):
+    """Signal ffmpeg to flush trailers and exit. Cross-platform."""
+    if _IS_WINDOWS:
+        try:
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+            return
+        except (ValueError, OSError) as exc:
+            logger.warning('Recorder %s: CTRL_BREAK_EVENT failed (%s)', name, exc)
+            return
+    try:
+        proc.send_signal(signal.SIGINT)
+    except (ProcessLookupError, OSError):
+        pass
 
 
 def _ffmpeg_available():
@@ -84,21 +114,18 @@ class CameraRecorder:
         self._running = False
         proc = self._proc
         if proc and proc.poll() is None:
-            # SIGINT first so ffmpeg flushes the trailer (moov atom) on the
-            # in-progress segment. SIGTERM/SIGKILL leave the file unplayable.
-            try:
-                proc.send_signal(signal.SIGINT)
-            except (ProcessLookupError, OSError):
-                pass
+            # Soft interrupt first so ffmpeg flushes the trailer (moov atom)
+            # on the in-progress segment. terminate/kill leave it unplayable.
+            _interrupt(proc, self.name)
             try:
                 proc.wait(timeout=8)
             except subprocess.TimeoutExpired:
-                logger.warning('Recorder %s: SIGINT timed out, escalating to SIGTERM', self.name)
+                logger.warning('Recorder %s: interrupt timed out, escalating to terminate', self.name)
                 try:
                     proc.terminate()
                     proc.wait(timeout=4)
                 except subprocess.TimeoutExpired:
-                    logger.warning('Recorder %s: SIGTERM timed out, sending SIGKILL', self.name)
+                    logger.warning('Recorder %s: terminate timed out, sending kill', self.name)
                     proc.kill()
                 except (ProcessLookupError, OSError):
                     pass
@@ -207,6 +234,7 @@ class CameraRecorder:
                     cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
+                    **_popen_kwargs(),
                 )
                 self._proc = proc
                 logger.info('Recorder %s: ffmpeg pid=%d', self.name, proc.pid)
