@@ -372,11 +372,24 @@
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Latitude</label>
-                            <input type="number" step="any" class="form-control" name="latitude" placeholder="-6.2088">
+                            <input type="number" step="any" class="form-control" name="latitude" id="acmLat" placeholder="-6.2088">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Longitude</label>
-                            <input type="number" step="any" class="form-control" name="longitude" placeholder="106.8456">
+                            <input type="number" step="any" class="form-control" name="longitude" id="acmLng" placeholder="106.8456">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label d-flex align-items-center justify-content-between">
+                                <span>Pick Location on Map</span>
+                                <button type="button" class="btn btn-sm btn-link p-0" id="acmClearCoords"
+                                        style="font-size: 0.72rem; color: var(--text-secondary);">
+                                    Clear
+                                </button>
+                            </label>
+                            <div id="addCameraMap" style="height: 280px; border-radius: 6px; border: 1px solid var(--border-color);"></div>
+                            <div class="form-text" style="font-size: 0.72rem;">
+                                Klik di peta untuk set koordinat kamera.
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">ONVIF Username <span style="font-size:0.72rem;color:var(--text-muted);">(opsional)</span></label>
@@ -560,5 +573,81 @@ setInterval(function() {
             document.title = data.health + ' - Pelco Storage Simulator';
         });
 }, 10000);
+
+// ----- Add Camera modal: map picker -----
+(function () {
+    var modalEl = document.getElementById('addCameraModal');
+    if (!modalEl || typeof L === 'undefined') return;
+
+    var map = null;
+    var marker = null;
+    var DEFAULT_CENTER = [-6.2088, 106.8456];
+    var DEFAULT_ZOOM = 12;
+
+    var latInput = document.getElementById('acmLat');
+    var lngInput = document.getElementById('acmLng');
+    var mapDiv = document.getElementById('addCameraMap');
+
+    var icon = L.divIcon({
+        html: '<i class="fa-solid fa-video" style="color:#4f7cff;font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));"></i>',
+        className: 'storage-cam-marker',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
+
+    function syncFromInputs() {
+        var lat = parseFloat(latInput.value);
+        var lng = parseFloat(lngInput.value);
+        if (!isNaN(lat) && !isNaN(lng)) return [lat, lng];
+        return null;
+    }
+
+    function placeMarker(latlng) {
+        if (marker) {
+            marker.setLatLng(latlng);
+        } else {
+            marker = L.marker(latlng, { icon: icon }).addTo(map);
+        }
+    }
+
+    function initMap() {
+        if (map) {
+            // Modal was reopened — invalidate size so tiles render correctly
+            setTimeout(function () { map.invalidateSize(); }, 50);
+            return;
+        }
+        var coords = syncFromInputs() || DEFAULT_CENTER;
+        var zoom = syncFromInputs() ? 16 : DEFAULT_ZOOM;
+        map = L.map(mapDiv).setView(coords, zoom);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap',
+            maxZoom: 19,
+        }).addTo(map);
+        if (syncFromInputs()) placeMarker(coords);
+        map.on('click', function (e) {
+            var lat = e.latlng.lat.toFixed(6);
+            var lng = e.latlng.lng.toFixed(6);
+            latInput.value = lat;
+            lngInput.value = lng;
+            placeMarker(e.latlng);
+        });
+        // Bootstrap modal hides the map until shown — invalidate after first paint
+        setTimeout(function () { map.invalidateSize(); }, 50);
+    }
+
+    modalEl.addEventListener('shown.bs.modal', initMap);
+
+    var clearBtn = document.getElementById('acmClearCoords');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', function () {
+            latInput.value = '';
+            lngInput.value = '';
+            if (marker && map) {
+                map.removeLayer(marker);
+                marker = null;
+            }
+        });
+    }
+})();
 </script>
 {% endblock %}

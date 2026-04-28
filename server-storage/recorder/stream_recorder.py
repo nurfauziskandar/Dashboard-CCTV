@@ -102,11 +102,11 @@ class CameraRecorder:
         # Filename ffmpeg is currently writing (parsed from "Opening 'X'" log)
         self._current_segment_file = None
         if self._use_ffmpeg:
-            logger.info('Recorder %s: using ffmpeg backend', name)
+            logger.info('Recorder %s: using ffmpeg backend', slug)
         else:
             logger.warning(
                 'Recorder %s: ffmpeg not found, using OpenCV backend '
-                '(Firefox playback may not work)', name,
+                '(Firefox playback may not work)', slug,
             )
 
     @property
