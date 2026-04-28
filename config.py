@@ -12,8 +12,11 @@ class BaseConfig:
     CAMERA_POLL_INTERVAL = 60
     SERVER_POLL_INTERVAL = 120
     FERNET_KEY = os.environ.get('FERNET_KEY')
-    DEFAULT_MAP_CENTER = [-6.2088, 106.8456]
-    DEFAULT_MAP_ZOOM = 12
+    DEFAULT_MAP_CENTER = [
+        float(os.environ.get('MAP_CENTER_LAT', -6.2088)),
+        float(os.environ.get('MAP_CENTER_LNG', 106.8456)),
+    ]
+    DEFAULT_MAP_ZOOM = int(os.environ.get('MAP_ZOOM', 12))
 
     # --- Auth (Web UI session login) ---
     ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')

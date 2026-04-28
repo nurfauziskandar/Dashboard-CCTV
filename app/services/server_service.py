@@ -46,6 +46,24 @@ class ServerService:
         self._refresh_server(server)
         return server
 
+    def update(self, server_id, data):
+        server = db.session.get(Server, server_id)
+        if not server:
+            return None
+        server.name = data.get('name', server.name)
+        server.ip_address = data.get('ip_address', server.ip_address)
+        server.description = data.get('description', server.description)
+        server.server_type = data.get('server_type', server.server_type)
+        server.idrac_ip = data.get('idrac_ip') or server.idrac_ip
+        server.idrac_port = int(data['idrac_port']) if data.get('idrac_port') else server.idrac_port
+        if data.get('idrac_username'):
+            server.idrac_username = data['idrac_username']
+        if data.get('idrac_password'):
+            server.idrac_password = data['idrac_password']
+        server.snmp_community = data.get('snmp_community', server.snmp_community)
+        db.session.commit()
+        return server
+
     def delete(self, server_id):
         server = db.session.get(Server, server_id)
         if server:

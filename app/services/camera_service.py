@@ -75,6 +75,29 @@ class CameraService:
 
         return camera
 
+    def update(self, camera_id, data):
+        camera = db.session.get(Camera, camera_id)
+        if not camera:
+            return None
+        camera.name = data.get('name', camera.name)
+        camera.ip_address = data.get('ip_address', camera.ip_address)
+        camera.port = int(data['port']) if data.get('port') else camera.port
+        camera.manufacturer = data.get('manufacturer', camera.manufacturer)
+        camera.model = data.get('model', camera.model)
+        camera.location_name = data.get('location_name', camera.location_name)
+        lat = data.get('latitude')
+        lng = data.get('longitude')
+        camera.latitude = float(lat) if lat else None
+        camera.longitude = float(lng) if lng else None
+        camera.stream_uri = data.get('stream_uri') or camera.stream_uri
+        if data.get('onvif_username'):
+            camera.onvif_username = data['onvif_username']
+        if data.get('onvif_password'):
+            camera.onvif_password = data['onvif_password']
+        camera.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return camera
+
     def delete(self, camera_id):
         camera = db.session.get(Camera, camera_id)
         if camera:

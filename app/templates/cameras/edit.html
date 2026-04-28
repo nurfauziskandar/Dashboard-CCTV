@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}Edit {{ camera.name }}{% endblock %}
+{% block page_title %}Edit Camera{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-pen me-2"></i>Edit Camera — {{ camera.name }}
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('cameras.edit', camera_id=camera.id) }}">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Camera Name</label>
+                            <input type="text" class="form-control" name="name"
+                                   value="{{ camera.name }}" required>
+                        </div>
+                        <div class="col-8">
+                            <label class="form-label">IP Address</label>
+                            <input type="text" class="form-control" name="ip_address"
+                                   value="{{ camera.ip_address }}"
+                                   placeholder="192.168.1.100">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" name="port"
+                                   value="{{ camera.port }}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">RTSP Stream URI</label>
+                            <input type="text" class="form-control" name="stream_uri"
+                                   value="{{ camera.stream_uri or '' }}"
+                                   placeholder="rtsp://user:pass@ip:554/path">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Manufacturer</label>
+                            <select class="form-select" name="manufacturer">
+                                {% for mfr in ['Pelco', 'Hikvision', 'Dahua', 'Axis', 'Other'] %}
+                                <option value="{{ mfr }}" {{ 'selected' if camera.manufacturer == mfr }}>{{ mfr }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Model</label>
+                            <input type="text" class="form-control" name="model"
+                                   value="{{ camera.model or '' }}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Location Name</label>
+                            <input type="text" class="form-control" name="location_name"
+                                   value="{{ camera.location_name or '' }}"
+                                   placeholder="e.g., Gedung A - Lobby">
+                        </div>
+
+                        <div class="col-6">
+                            <label class="form-label">ONVIF Username <span style="font-size:0.8rem; color:var(--text-muted);">(opsional)</span></label>
+                            <input type="text" class="form-control" name="onvif_username"
+                                   value="{{ camera.onvif_username or '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">ONVIF Password <span style="font-size:0.8rem; color:var(--text-muted);">(kosong = tidak diubah)</span></label>
+                            <input type="password" class="form-control" name="onvif_password"
+                                   placeholder="Biarkan kosong jika tidak diubah">
+                        </div>
+
+                        <input type="hidden" name="latitude" id="inputLat" value="{{ camera.latitude or '' }}">
+                        <input type="hidden" name="longitude" id="inputLng" value="{{ camera.longitude or '' }}">
+
+                        <div class="col-12" id="coordDisplay"
+                             style="{{ '' if camera.latitude else 'display:none;' }}">
+                            <div class="d-flex align-items-center gap-2" style="font-size: 0.8rem; color: var(--text-secondary);">
+                                <i class="fa-solid fa-map-pin"></i>
+                                <span id="coordText">{{ camera.latitude }}, {{ camera.longitude }}</span>
+                                <button type="button" class="btn btn-link btn-sm p-0" id="clearCoords" style="font-size: 0.75rem;">
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="col-12 mt-3">
+                            <button type="submit" class="btn btn-accent">
+                                <i class="fa-solid fa-floppy-disk me-1"></i> Save Changes
+                            </button>
+                            <a href="{{ url_for('cameras.detail', camera_id=camera.id) }}" class="btn btn-ghost ms-2">
+                                Cancel
+                            </a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="fa-solid fa-map-location-dot me-2"></i>Pick Location on Map
+            </div>
+            <div class="card-body p-0">
+                <div class="map-container">
+                    <div id="editCameraMap" style="height: 500px;"></div>
+                </div>
+                <div class="p-3" style="font-size: 0.8rem; color: var(--text-secondary);">
+                    Click on the map to update the camera location.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var mapCenter = {{ config.DEFAULT_MAP_CENTER | tojson }};
+    var mapZoom = {{ config.DEFAULT_MAP_ZOOM }};
+    {% if camera.latitude and camera.longitude %}
+    mapCenter = [{{ camera.latitude }}, {{ camera.longitude }}];
+    mapZoom = 16;
+    {% endif %}
+
+    var map = L.map('editCameraMap').setView(mapCenter, mapZoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap',
+        maxZoom: 19
+    }).addTo(map);
+
+    var inputLat = document.getElementById('inputLat');
+    var inputLng = document.getElementById('inputLng');
+    var coordDisplay = document.getElementById('coordDisplay');
+    var coordText = document.getElementById('coordText');
+
+    var icon = L.divIcon({
+        html: '<i class="fa-solid fa-video" style="color: var(--accent); font-size: 22px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));"></i>',
+        className: 'camera-marker',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
+
+    var marker = null;
+    {% if camera.latitude and camera.longitude %}
+    marker = L.marker([{{ camera.latitude }}, {{ camera.longitude }}], { icon: icon }).addTo(map);
+    {% endif %}
+
+    map.on('click', function (e) {
+        var lat = e.latlng.lat.toFixed(6);
+        var lng = e.latlng.lng.toFixed(6);
+        inputLat.value = lat;
+        inputLng.value = lng;
+        coordText.textContent = lat + ', ' + lng;
+        coordDisplay.style.display = 'block';
+        if (marker) {
+            marker.setLatLng(e.latlng);
+        } else {
+            marker = L.marker(e.latlng, { icon: icon }).addTo(map);
+        }
+    });
+
+    document.getElementById('clearCoords').addEventListener('click', function () {
+        inputLat.value = '';
+        inputLng.value = '';
+        coordDisplay.style.display = 'none';
+        if (marker) {
+            map.removeLayer(marker);
+            marker = null;
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -4,6 +4,9 @@
 {% block page_title %}Server Detail{% endblock %}
 
 {% block topbar_actions %}
+<a href="{{ url_for('servers.edit', server_id=server.id) }}" class="btn btn-ghost btn-sm">
+    <i class="fa-solid fa-pen me-1"></i> Edit
+</a>
 <button class="btn btn-ghost btn-sm" id="btnRefresh">
     <i class="fa-solid fa-rotate me-1"></i> Refresh
 </button>

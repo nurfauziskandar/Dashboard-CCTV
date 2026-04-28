@@ -42,6 +42,36 @@ def detail(server_id):
     return render_template('servers/detail.html', server=server, config=current_app.config)
 
 
+@bp.route('/<int:server_id>/edit', methods=['GET', 'POST'])
+def edit(server_id):
+    server_service = current_app.config['server_service']
+    server = server_service.get_by_id(server_id)
+    if not server:
+        flash('Server not found.', 'danger')
+        return redirect(url_for('servers.index'))
+
+    if request.method == 'POST':
+        data = {
+            'name': request.form['name'],
+            'ip_address': request.form.get('ip_address', ''),
+            'description': request.form.get('description'),
+            'server_type': request.form.get('server_type', 'vxstorage'),
+            'idrac_ip': request.form.get('idrac_ip'),
+            'idrac_port': request.form.get('idrac_port'),
+            'idrac_username': request.form.get('idrac_username'),
+            'idrac_password': request.form.get('idrac_password'),
+            'snmp_community': request.form.get('snmp_community', 'public'),
+        }
+        try:
+            server_service.update(server_id, data)
+            flash('Server updated.', 'success')
+        except Exception as e:
+            flash(f'Failed to update server: {e}', 'danger')
+        return redirect(url_for('servers.detail', server_id=server_id))
+
+    return render_template('servers/edit.html', server=server, config=current_app.config)
+
+
 @bp.route('/<int:server_id>/delete', methods=['POST'])
 def delete(server_id):
     server_service = current_app.config['server_service']

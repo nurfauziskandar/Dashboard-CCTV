@@ -106,6 +106,40 @@ def playback(camera_id):
     )
 
 
+@bp.route('/<int:camera_id>/edit', methods=['GET', 'POST'])
+def edit(camera_id):
+    camera_service = current_app.config['camera_service']
+    camera = camera_service.get_by_id(camera_id)
+    if not camera:
+        flash('Camera not found.', 'danger')
+        return redirect(url_for('cameras.index'))
+
+    if request.method == 'POST':
+        data = {
+            'name': request.form['name'],
+            'ip_address': request.form.get('ip_address', ''),
+            'port': request.form.get('port'),
+            'manufacturer': request.form.get('manufacturer'),
+            'model': request.form.get('model'),
+            'location_name': request.form.get('location_name'),
+            'stream_uri': request.form.get('stream_uri'),
+            'onvif_username': request.form.get('onvif_username'),
+            'onvif_password': request.form.get('onvif_password'),
+        }
+        lat = request.form.get('latitude')
+        lng = request.form.get('longitude')
+        data['latitude'] = lat if lat else None
+        data['longitude'] = lng if lng else None
+        try:
+            camera_service.update(camera_id, data)
+            flash('Camera updated.', 'success')
+        except Exception as e:
+            flash(f'Failed to update camera: {e}', 'danger')
+        return redirect(url_for('cameras.detail', camera_id=camera_id))
+
+    return render_template('cameras/edit.html', camera=camera, config=current_app.config)
+
+
 @bp.route('/<int:camera_id>/delete', methods=['POST'])
 def delete(camera_id):
     camera_service = current_app.config['camera_service']
