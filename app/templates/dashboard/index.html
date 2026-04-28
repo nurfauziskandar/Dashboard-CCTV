@@ -252,49 +252,59 @@ document.addEventListener('DOMContentLoaded', function () {
     var camChart = null;
     var srvChart = null;
 
+    var gridColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--border-color').trim() || 'rgba(255,255,255,0.1)';
+
+    var barOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: { color: textColor, precision: 0 },
+                grid: { color: gridColor },
+            },
+            x: {
+                ticks: { color: textColor },
+                grid: { display: false },
+            },
+        },
+    };
+
     var camCanvas = document.getElementById('cameraChart');
     if (camCanvas && window.Chart) {
         camChart = new Chart(camCanvas, {
-            type: 'doughnut',
+            type: 'bar',
             data: {
                 labels: ['Active', 'Inactive'],
                 datasets: [{
                     data: [{{ cam_counts.active }}, {{ cam_counts.inactive }}],
                     backgroundColor: ['#2ecc71', '#e74c3c'],
                     borderWidth: 0,
+                    borderRadius: 6,
+                    maxBarThickness: 80,
                 }]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '65%',
-                plugins: {
-                    legend: { position: 'bottom', labels: { color: textColor, padding: 12 } },
-                }
-            }
+            options: barOptions,
         });
     }
 
     var srvCanvas = document.getElementById('serverChart');
     if (srvCanvas && window.Chart) {
         srvChart = new Chart(srvCanvas, {
-            type: 'doughnut',
+            type: 'bar',
             data: {
                 labels: ['Online', 'Offline'],
                 datasets: [{
                     data: [{{ srv_summary.online }}, {{ srv_summary.offline }}],
                     backgroundColor: ['#2ecc71', '#e74c3c'],
                     borderWidth: 0,
+                    borderRadius: 6,
+                    maxBarThickness: 80,
                 }]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '65%',
-                plugins: {
-                    legend: { position: 'bottom', labels: { color: textColor, padding: 12 } },
-                }
-            }
+            options: barOptions,
         });
     }
 
