@@ -126,6 +126,11 @@ def create_app(config_name=None):
         if app.config['DEMO_MODE']:
             _seed_demo_data(db, camera_service, server_service)
 
+        # Re-sync cameras → storage on startup so storage recorders resume
+        # even if storage's cameras.json was wiped or storage was offline
+        # when cameras were originally added.
+        _sync_cameras_to_storage(app, camera_service, storage_client)
+
     # Background polling
     if not app.config.get('TESTING'):
         app.config['SCHEDULER_API_ENABLED'] = False
@@ -151,6 +156,13 @@ def create_app(config_name=None):
         def daily_snapshot():
             snapshot_service.capture()
 
+        # Re-sync cameras → storage every 5 min as belt-and-suspenders so
+        # any recorder gap is closed quickly without needing a restart.
+        @scheduler.task('interval', id='sync_storage', seconds=300)
+        def sync_storage():
+            with app.app_context():
+                _sync_cameras_to_storage(app, camera_service, storage_client)
+
         scheduler.start()
 
         # Capture an initial snapshot for today on startup so summary shows
@@ -161,6 +173,28 @@ def create_app(config_name=None):
             app.logger.warning('Initial snapshot capture failed: %s', exc)
 
     return app
+
+
+def _sync_cameras_to_storage(app, camera_service, storage_client):
+    if not storage_client or not storage_client.enabled:
+        return
+    try:
+        registered = storage_client.list_registered()
+    except Exception:
+        app.logger.warning('Storage sync skipped — could not reach storage')
+        return
+
+    cameras = camera_service.get_all()
+    pushed = 0
+    for cam in cameras:
+        if not cam.stream_uri:
+            continue
+        if cam.name in registered:
+            continue
+        if storage_client.register_camera(cam.name, cam.stream_uri):
+            pushed += 1
+    if pushed:
+        app.logger.info('Storage sync: registered %d camera(s)', pushed)
 
 
 def _seed_demo_data(db, camera_service, server_service):

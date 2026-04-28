@@ -417,8 +417,18 @@ class RecordingManager:
     def start(self):
         self._running = True
         cameras = self._load_cameras()
+        if cameras:
+            logger.info('Resuming %d camera recorder(s) from cameras.json', len(cameras))
         for cam in cameras:
-            self.add_camera(cam['name'], cam['rtsp_uri'])
+            try:
+                name = cam.get('name')
+                rtsp_uri = cam.get('rtsp_uri')
+                if not name or not rtsp_uri:
+                    logger.warning('Skipping malformed entry: %s', cam)
+                    continue
+                self.add_camera(name, rtsp_uri)
+            except Exception:
+                logger.exception('Failed to resume camera %s', cam)
         self._cleanup_thread = threading.Thread(
             target=self._cleanup_loop, daemon=True,
         )
@@ -522,16 +532,37 @@ class RecordingManager:
 
     def _load_cameras(self):
         path = self.config.CAMERAS_FILE
-        if os.path.exists(path):
+        if not os.path.exists(path):
+            return []
+        try:
             with open(path, 'r') as f:
-                return json.load(f)
-        return []
+                data = json.load(f)
+            if not isinstance(data, list):
+                logger.warning('cameras.json malformed (not list), ignoring')
+                return []
+            return data
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning('cameras.json load failed (%s) — starting empty', exc)
+            return []
 
     def _save_cameras(self):
+        # Atomic: write to .tmp then rename. Crash mid-write leaves old file intact.
         cameras = self.get_camera_list()
         path = self.config.CAMERAS_FILE
-        with open(path, 'w') as f:
-            json.dump(cameras, f, indent=2)
+        tmp = path + '.tmp'
+        try:
+            with open(tmp, 'w') as f:
+                json.dump(cameras, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except OSError as exc:
+            logger.error('cameras.json save failed: %s', exc)
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
 
     def _load_retention(self):
         path = self.config.RETENTION_FILE

@@ -61,6 +61,22 @@ class StorageClient:
             log.warning('unregister_camera error: %s', e)
         return False
 
+    def list_registered(self):
+        """Return set of camera names currently registered on storage."""
+        if not self.enabled:
+            return set()
+        try:
+            r = requests.get(
+                f'{self.base_url}/api/cameras',
+                headers=self._headers(),
+                timeout=self.timeout,
+            )
+            if r.status_code == 200:
+                return {c['name'] for c in r.json().get('cameras', []) if c.get('name')}
+        except requests.RequestException as e:
+            log.warning('list_registered error: %s', e)
+        return set()
+
     # --- Recordings ---
 
     def list_recordings(self, name):
