@@ -60,12 +60,12 @@ def add_camera():
     return redirect(url_for('web.index'))
 
 
-@bp.route('/cameras/<name>/remove', methods=['POST'])
+@bp.route('/cameras/<slug>/remove', methods=['POST'])
 @login_required
-def remove_camera(name):
+def remove_camera(slug):
     rec_manager = current_app.config['rec_manager']
-    rec_manager.remove_camera(name)
-    flash(f'Camera "{name}" removed.', 'success')
+    rec_manager.remove_camera(slug)
+    flash(f'Camera "{slug}" removed.', 'success')
     return redirect(url_for('web.index'))
 
 
@@ -94,12 +94,16 @@ def update_retention():
 @login_required
 def recordings():
     config = current_app.config['APP_CONFIG']
+    rec_manager = current_app.config['rec_manager']
     rec_dir = config.RECORDINGS_DIR
+
+    # Map slug → display name for cameras still registered
+    name_map = {c['slug']: c['name'] for c in rec_manager.get_camera_list()}
 
     cameras = {}
     if os.path.exists(rec_dir):
-        for cam_name in sorted(os.listdir(rec_dir)):
-            cam_dir = os.path.join(rec_dir, cam_name)
+        for slug in sorted(os.listdir(rec_dir)):
+            cam_dir = os.path.join(rec_dir, slug)
             if not os.path.isdir(cam_dir):
                 continue
             files = []
@@ -114,19 +118,26 @@ def recordings():
                         'mtime': stat.st_mtime,
                     })
             if files:
-                cameras[cam_name] = files
+                cameras[slug] = {
+                    'display_name': name_map.get(slug, slug),
+                    'files': files,
+                }
 
     return render_template('recordings.html', cameras=cameras, config=config)
 
 
-@bp.route('/playback/<path:camera_name>')
+@bp.route('/playback/<slug>')
 @login_required
-def playback(camera_name):
+def playback(slug):
     config = current_app.config['APP_CONFIG']
-    cam_dir = os.path.join(config.RECORDINGS_DIR, camera_name)
+    rec_manager = current_app.config['rec_manager']
+    cam_dir = os.path.join(config.RECORDINGS_DIR, slug)
 
     if not os.path.isdir(cam_dir):
         abort(404)
+
+    name_map = {c['slug']: c['name'] for c in rec_manager.get_camera_list()}
+    display_name = name_map.get(slug, slug)
 
     files = []
     for f in sorted(os.listdir(cam_dir), reverse=True):
@@ -140,16 +151,16 @@ def playback(camera_name):
             })
 
     selected = request.args.get('file', files[0]['name'] if files else None)
-    return render_template('playback.html', camera_name=camera_name,
+    return render_template('playback.html', slug=slug, camera_name=display_name,
                            files=files, selected=selected, config=config)
 
 
-@bp.route('/recordings/<path:camera_name>/<filename>/delete', methods=['POST'])
+@bp.route('/recordings/<slug>/<filename>/delete', methods=['POST'])
 @login_required
-def delete_recording(camera_name, filename):
+def delete_recording(slug, filename):
     config = current_app.config['APP_CONFIG']
     rec_dir = os.path.realpath(config.RECORDINGS_DIR)
-    cam_dir = os.path.realpath(os.path.join(config.RECORDINGS_DIR, camera_name))
+    cam_dir = os.path.realpath(os.path.join(config.RECORDINGS_DIR, slug))
     if not cam_dir.startswith(rec_dir):
         abort(403)
     if not filename.endswith('.mp4') or '/' in filename or '\\' in filename:
@@ -163,11 +174,11 @@ def delete_recording(camera_name, filename):
     return redirect(url_for('web.recordings'))
 
 
-@bp.route('/recordings/<path:camera_name>/<filename>')
+@bp.route('/recordings/<slug>/<filename>')
 @login_required
-def serve_recording(camera_name, filename):
+def serve_recording(slug, filename):
     config = current_app.config['APP_CONFIG']
-    cam_dir = os.path.realpath(os.path.join(config.RECORDINGS_DIR, camera_name))
+    cam_dir = os.path.realpath(os.path.join(config.RECORDINGS_DIR, slug))
     rec_dir = os.path.realpath(config.RECORDINGS_DIR)
     if not cam_dir.startswith(rec_dir):
         abort(403)

@@ -19,12 +19,12 @@
 </div>
 {% else %}
 <div class="row g-3">
-    {% for cam_name, files in cameras.items() %}
+    {% for slug, info in cameras.items() %}
     <div class="col-lg-6">
         <div class="card">
             <div class="card-header d-flex align-items-center justify-content-between">
-                <span><i class="fa-solid fa-video me-2"></i>{{ cam_name }}</span>
-                <a href="{{ url_for('web.playback', camera_name=cam_name) }}" class="btn btn-accent btn-sm">
+                <span><i class="fa-solid fa-video me-2"></i>{{ info.display_name }}</span>
+                <a href="{{ url_for('web.playback', slug=slug) }}" class="btn btn-accent btn-sm">
                     <i class="fa-solid fa-play me-1"></i> Putar
                 </a>
             </div>
@@ -40,10 +40,10 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for f in files %}
+                            {% for f in info.files %}
                             <tr>
                                 <td style="font-size: 0.78rem; font-family: monospace;">
-                                    <a href="{{ url_for('web.playback', camera_name=cam_name, file=f.name) }}"
+                                    <a href="{{ url_for('web.playback', slug=slug, file=f.name) }}"
                                        style="color: var(--accent); text-decoration: none;">
                                         {{ f.name }}
                                     </a>
@@ -56,7 +56,7 @@
                                 </td>
                                 <td class="text-end">
                                     <form method="POST"
-                                          action="{{ url_for('web.delete_recording', camera_name=cam_name, filename=f.name) }}"
+                                          action="{{ url_for('web.delete_recording', slug=slug, filename=f.name) }}"
                                           onsubmit="return confirm('Hapus {{ f.name }}?')">
                                         <button type="submit" class="btn btn-sm btn-link p-0"
                                                 style="color: var(--danger);" title="Hapus">

@@ -184,12 +184,13 @@ def _sync_cameras_to_storage(app, camera_service, storage_client):
         app.logger.warning('Storage sync skipped — could not reach storage')
         return
 
+    from app.services.storage_client import slugify
     cameras = camera_service.get_all()
     pushed = 0
     for cam in cameras:
         if not cam.stream_uri:
             continue
-        if cam.name in registered:
+        if slugify(cam.name) in registered:
             continue
         if storage_client.register_camera(cam.name, cam.stream_uri):
             pushed += 1

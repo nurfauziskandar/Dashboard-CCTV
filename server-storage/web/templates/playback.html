@@ -26,7 +26,7 @@
                 {% if selected %}
                 <video id="videoPlayer" controls preload="metadata" playsinline
                        style="width: 100%; max-height: 500px; display: block;">
-                    <source src="{{ url_for('web.serve_recording', camera_name=camera_name, filename=selected) }}"
+                    <source src="{{ url_for('web.serve_recording', slug=slug, filename=selected) }}"
                             type='video/mp4; codecs="avc1.4D401E"'>
                     Browser tidak mendukung HTML5 video.
                 </video>
@@ -61,7 +61,7 @@
                     {% for f in files %}
                     <a href="#" class="list-group-item list-group-item-action segment-item
                         {% if f.name == selected %}active{% endif %}"
-                       data-src="{{ url_for('web.serve_recording', camera_name=camera_name, filename=f.name) }}"
+                       data-src="{{ url_for('web.serve_recording', slug=slug, filename=f.name) }}"
                        data-name="{{ f.name }}"
                        data-size="{{ f.size_mb }}"
                        style="background: {% if f.name == selected %}var(--bg-input){% else %}transparent{% endif %};

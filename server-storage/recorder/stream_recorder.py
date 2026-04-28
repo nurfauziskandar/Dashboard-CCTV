@@ -18,6 +18,23 @@ _IS_WINDOWS = sys.platform == 'win32'
 
 # Strip path-unsafe chars AND % so ffmpeg's strftime never misinterprets the name
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*%\x00-\x1f]')
+_WHITESPACE = re.compile(r'\s+')
+_MULTI_USCORE = re.compile(r'_+')
+
+
+def slugify(name):
+    """Backend identifier for a camera. Spaces become underscores, unsafe
+    path chars are stripped, and runs of underscores collapsed. Used for
+    folder names, dict keys, and API URL components — UI keeps the original
+    display name."""
+    if not name:
+        return 'camera'
+    s = name.strip()
+    s = _WHITESPACE.sub('_', s)
+    s = _UNSAFE_CHARS.sub('', s)
+    s = _MULTI_USCORE.sub('_', s)
+    s = s.strip('._-')
+    return s or 'camera'
 
 
 def _safe_filename(name):
@@ -63,8 +80,12 @@ class CameraRecorder:
     step when ffmpeg binary is not on PATH.
     """
 
-    def __init__(self, name, rtsp_uri, config):
-        self.name = name
+    def __init__(self, slug, display_name, rtsp_uri, config):
+        # slug = backend id (no spaces, used in paths/URLs)
+        # display_name = user-facing label (kept verbatim for UI)
+        self.slug = slug
+        self.display_name = display_name
+        self.name = slug  # legacy alias for log messages
         self.rtsp_uri = rtsp_uri
         self.config = config
         self._running = False
@@ -414,19 +435,17 @@ class CameraRecorder:
 
     def _next_filepath(self):
         """OpenCV fallback uses one filepath per segment (loop-driven)."""
-        safe_name = _safe_filename(self.name)
-        cam_dir = os.path.join(self.config.RECORDINGS_DIR, safe_name)
+        cam_dir = os.path.join(self.config.RECORDINGS_DIR, self.slug)
         os.makedirs(cam_dir, exist_ok=True)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return os.path.join(cam_dir, f'{safe_name}_{timestamp}.mp4')
+        return os.path.join(cam_dir, f'{self.slug}_{timestamp}.mp4')
 
     def _segment_pattern(self):
         """ffmpeg segment muxer takes a strftime pattern; ffmpeg expands it
         each time it opens a new segment. Returns (cam_dir, pattern)."""
-        safe_name = _safe_filename(self.name)
-        cam_dir = os.path.join(self.config.RECORDINGS_DIR, safe_name)
+        cam_dir = os.path.join(self.config.RECORDINGS_DIR, self.slug)
         os.makedirs(cam_dir, exist_ok=True)
-        pattern = os.path.join(cam_dir, f'{safe_name}_%Y%m%d_%H%M%S.mp4')
+        pattern = os.path.join(cam_dir, f'{self.slug}_%Y%m%d_%H%M%S.mp4')
         return cam_dir, pattern
 
 
@@ -495,12 +514,12 @@ class RecordingManager:
             logger.info('Resuming %d camera recorder(s) from cameras.json', len(cameras))
         for cam in cameras:
             try:
-                name = cam.get('name')
+                display_name = cam.get('name')
                 rtsp_uri = cam.get('rtsp_uri')
-                if not name or not rtsp_uri:
+                if not display_name or not rtsp_uri:
                     logger.warning('Skipping malformed entry: %s', cam)
                     continue
-                self.add_camera(name, rtsp_uri)
+                self.add_camera(display_name, rtsp_uri)
             except Exception:
                 logger.exception('Failed to resume camera %s', cam)
         self._cleanup_thread = threading.Thread(
@@ -532,52 +551,59 @@ class RecordingManager:
             logger.info('Cooldown %s: sleeping %.1fs before re-add', name, wait)
             time.sleep(wait)
 
-    def add_camera(self, name, rtsp_uri):
-        # Stop any existing recorder for this name OUTSIDE the lock so other
+    def add_camera(self, display_name, rtsp_uri):
+        """Register a camera under its slug. display_name is preserved for UI."""
+        slug = slugify(display_name)
+        # Stop any existing recorder for this slug OUTSIDE the lock so other
         # API calls aren't blocked for the full ~10s ffmpeg shutdown window.
         existing = None
         with self._lock:
-            if name in self._recorders:
-                existing = self._recorders.pop(name)
+            if slug in self._recorders:
+                existing = self._recorders.pop(slug)
         if existing:
-            logger.info('Replacing recorder %s — stopping old instance', name)
+            logger.info('Replacing recorder %s — stopping old instance', slug)
             existing.stop()
-            self._recently_stopped[name] = time.time()
+            self._recently_stopped[slug] = time.time()
             if self._on_remove:
                 try:
-                    self._on_remove(name)
+                    self._on_remove(slug)
                 except Exception:
-                    logger.exception('on_remove callback error for %s', name)
+                    logger.exception('on_remove callback error for %s', slug)
 
-        self._wait_cooldown(name)
+        self._wait_cooldown(slug)
 
         with self._lock:
-            rec = CameraRecorder(name, rtsp_uri, self.config)
-            self._recorders[name] = rec
+            rec = CameraRecorder(slug, display_name, rtsp_uri, self.config)
+            self._recorders[slug] = rec
             rec.start()
-        logger.info('Recorder %s started (rtsp=%s)', name, rtsp_uri)
+        logger.info('Recorder %s started (rtsp=%s, display=%r)', slug, rtsp_uri, display_name)
         self._save_cameras()
+        return slug
 
-    def remove_camera(self, name):
+    def remove_camera(self, slug):
+        """Look up by slug. Accepts a display name too — slugifies it first
+        so the dashboard can keep calling DELETE with the user-facing name."""
+        slug = slugify(slug) if slug else slug
         with self._lock:
-            rec = self._recorders.pop(name, None)
+            rec = self._recorders.pop(slug, None)
         if rec:
-            logger.info('Removing recorder %s', name)
+            logger.info('Removing recorder %s', slug)
             rec.stop()
-            self._recently_stopped[name] = time.time()
+            self._recently_stopped[slug] = time.time()
             if self._on_remove:
                 try:
-                    self._on_remove(name)
+                    self._on_remove(slug)
                 except Exception:
-                    logger.exception('on_remove callback error for %s', name)
+                    logger.exception('on_remove callback error for %s', slug)
         self._save_cameras()
 
     def get_status(self):
         with self._lock:
             result = {}
-            for name, rec in self._recorders.items():
-                result[name] = {
-                    'name': name,
+            for slug, rec in self._recorders.items():
+                result[slug] = {
+                    'slug': slug,
+                    'name': rec.display_name,
                     'rtsp_uri': rec.rtsp_uri,
                     'status': rec.status,
                     'error': rec.error,
@@ -590,9 +616,17 @@ class RecordingManager:
     def get_camera_list(self):
         with self._lock:
             return [
-                {'name': name, 'rtsp_uri': rec.rtsp_uri}
-                for name, rec in self._recorders.items()
+                {
+                    'slug': slug,
+                    'name': rec.display_name,
+                    'rtsp_uri': rec.rtsp_uri,
+                }
+                for slug, rec in self._recorders.items()
             ]
+
+    def get_recorder(self, slug):
+        with self._lock:
+            return self._recorders.get(slug)
 
     def get_recordings_info(self):
         rec_dir = self.config.RECORDINGS_DIR
@@ -657,7 +691,17 @@ class RecordingManager:
             if not isinstance(data, list):
                 logger.warning('cameras.json malformed (not list), ignoring')
                 return []
-            return data
+            # Normalise legacy entries that lack 'slug' or have different keys.
+            out = []
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                rtsp = entry.get('rtsp_uri')
+                name = entry.get('name') or entry.get('slug')
+                if not rtsp or not name:
+                    continue
+                out.append({'name': name, 'rtsp_uri': rtsp})
+            return out
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning('cameras.json load failed (%s) — starting empty', exc)
             return []

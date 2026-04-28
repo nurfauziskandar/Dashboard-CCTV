@@ -111,13 +111,13 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for name, rec in recorders.items() %}
+                            {% for slug, rec in recorders.items() %}
                             <tr>
                                 <td>
                                     {% if rec.status == 'recording' %}
                                     <span class="rec-dot"></span>
                                     {% endif %}
-                                    {{ name }}
+                                    {{ rec.name }}
                                 </td>
                                 <td style="font-size: 0.8rem; color: var(--text-secondary); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                     {{ rec.rtsp_uri }}
@@ -135,8 +135,8 @@
                                 </td>
                                 <td>{{ '{:,}'.format(rec.frames_written) }}</td>
                                 <td>
-                                    <form method="POST" action="{{ url_for('web.remove_camera', name=name) }}"
-                                          onsubmit="return confirm('Remove camera {{ name }}?');"
+                                    <form method="POST" action="{{ url_for('web.remove_camera', slug=slug) }}"
+                                          onsubmit="return confirm('Remove camera {{ rec.name }}?');"
                                           class="d-inline">
                                         <button type="submit" class="btn btn-sm" style="color: var(--danger); padding: 2px 8px;">
                                             <i class="fa-solid fa-xmark"></i>

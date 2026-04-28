@@ -141,38 +141,38 @@ class LiveStreamService:
         self.max_width = config.LIVE_MAX_WIDTH
         self.jpeg_quality = config.LIVE_JPEG_QUALITY
 
-    def _get_rtsp_uri(self, name):
+    def _get_rtsp_uri(self, slug):
         for cam in self.rec_manager.get_camera_list():
-            if cam['name'] == name:
+            if cam.get('slug') == slug:
                 return cam['rtsp_uri']
         return None
 
-    def _get_or_create(self, name):
+    def _get_or_create(self, slug):
         with self._lock:
-            cap = self._streams.get(name)
+            cap = self._streams.get(slug)
             if cap is None or not cap.alive:
                 if cap is not None:
                     cap.stop()
-                uri = self._get_rtsp_uri(name)
+                uri = self._get_rtsp_uri(slug)
                 if not uri:
                     return None
                 cap = _RTSPCapture(uri)
                 cap.start()
-                self._streams[name] = cap
+                self._streams[slug] = cap
             cap.acquire()
             return cap
 
-    def _release(self, name):
+    def _release(self, slug):
         with self._lock:
-            cap = self._streams.get(name)
+            cap = self._streams.get(slug)
             if cap is None:
                 return
             if cap.release_ref() <= 0:
-                self._streams.pop(name, None)
+                self._streams.pop(slug, None)
                 cap.stop()
 
-    def get_frame_generator(self, name):
-        capture = self._get_or_create(name)
+    def get_frame_generator(self, slug):
+        capture = self._get_or_create(slug)
         if capture is None:
             return
         interval = 1.0 / max(self.target_fps, 1)
@@ -195,11 +195,11 @@ class LiveStreamService:
         except (GeneratorExit, ConnectionError):
             pass
         finally:
-            self._release(name)
+            self._release(slug)
 
-    def stop_one(self, name):
+    def stop_one(self, slug):
         with self._lock:
-            cap = self._streams.pop(name, None)
+            cap = self._streams.pop(slug, None)
         if cap:
             cap.stop()
 
