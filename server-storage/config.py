@@ -111,6 +111,11 @@ class Config:
     VIDEO_CODEC = os.environ.get('VIDEO_CODEC', 'avc1')
     VIDEO_FPS = int(os.environ.get('VIDEO_FPS', 15))
 
+    # --- Live MJPEG stream (lazy, refcounted second RTSP session) ---
+    LIVE_FPS = int(os.environ.get('LIVE_FPS', 10))
+    LIVE_MAX_WIDTH = int(os.environ.get('LIVE_MAX_WIDTH', 1280))
+    LIVE_JPEG_QUALITY = int(os.environ.get('LIVE_JPEG_QUALITY', 65))
+
     # --- Retention Policy ---
     # Recordings older than RETENTION_DAYS will be auto-deleted (0 = disabled)
     RETENTION_DAYS = int(os.environ.get('RETENTION_DAYS', 7))

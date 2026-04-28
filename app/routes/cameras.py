@@ -69,12 +69,24 @@ def add():
 @bp.route('/<int:camera_id>')
 def detail(camera_id):
     camera_service = current_app.config['camera_service']
+    storage_client = current_app.config.get('storage_client')
     camera = camera_service.get_by_id(camera_id)
     if not camera:
         flash('Camera not found.', 'danger')
         return redirect(url_for('cameras.index'))
 
-    return render_template('cameras/detail.html', camera=camera, config=current_app.config)
+    # Prefer storage's live MJPEG when available (avoids second RTSP session
+    # from dashboard). Falls back to local stream if storage offline.
+    live_url = None
+    if storage_client and storage_client.enabled and camera.is_active:
+        live_url = storage_client.live_url(camera.name)
+
+    return render_template(
+        'cameras/detail.html',
+        camera=camera,
+        config=current_app.config,
+        live_url=live_url,
+    )
 
 
 @bp.route('/<int:camera_id>/playback')

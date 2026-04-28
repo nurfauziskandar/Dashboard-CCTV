@@ -6,7 +6,7 @@ MP4 serve uses signed URLs (expires + sig) — no token needed there.
 
 import os
 from datetime import datetime
-from flask import Blueprint, request, jsonify, current_app, abort, send_file
+from flask import Blueprint, request, jsonify, current_app, abort, send_file, Response
 
 from web.auth import api_token_required, sign_url, verify_signature
 
@@ -94,6 +94,35 @@ def serve_recording(camera_name, filename):
     resp.headers['Cache-Control'] = 'no-cache'
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     return resp
+
+
+@bp.route('/live_url/<path:camera_name>', methods=['GET'])
+@api_token_required
+def live_url(camera_name):
+    """Return signed MJPEG live-stream URL for a camera. Uses 8h TTL so the
+    browser's <img> auto-retry keeps working over a long viewing session."""
+    path = f'/api/live/{camera_name}'
+    qs = sign_url(path, ttl=8 * 3600)
+    return jsonify({'camera': camera_name, 'url': f'{path}?{qs}'})
+
+
+@bp.route('/live/<path:camera_name>', methods=['GET'])
+def live_stream(camera_name):
+    """Public endpoint guarded by signed URL. Returns multipart MJPEG."""
+    expires = request.args.get('expires')
+    sig = request.args.get('sig')
+    path = f'/api/live/{camera_name}'
+    if not verify_signature(path, expires, sig):
+        return jsonify({'error': 'Invalid or expired signature'}), 403
+
+    live = current_app.config.get('live_service')
+    if live is None:
+        return jsonify({'error': 'live service unavailable'}), 503
+
+    return Response(
+        live.get_frame_generator(camera_name),
+        mimetype='multipart/x-mixed-replace; boundary=frame',
+    )
 
 
 @bp.route('/health', methods=['GET'])

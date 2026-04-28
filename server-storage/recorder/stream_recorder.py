@@ -219,7 +219,7 @@ class CameraRecorder:
                         except OSError:
                             pass
                     time.sleep(reconnect_delay)
-                    reconnect_delay = min(reconnect_delay * 2, 60)
+                    reconnect_delay = min(reconnect_delay * 2, 20)
                 else:
                     logger.info(
                         'Recorder %s: segment done (%d frames, %d bytes)',
@@ -380,6 +380,12 @@ class RecordingManager:
         self._cleanup_thread = None
         self._running = False
         self._retention = self._load_retention()
+        # Per-name timestamp of last stop. add_camera waits briefly after a
+        # recent stop so the camera's RTSP server has time to free the prior
+        # session — many CCTVs reject a second connect within ~1s.
+        self._recently_stopped = {}
+        # Optional callback (e.g. live stream service) to notify on stop
+        self._on_remove = None
 
     @property
     def retention_days(self):
@@ -440,20 +446,62 @@ class RecordingManager:
             for rec in self._recorders.values():
                 rec.stop()
 
+    def set_remove_callback(self, fn):
+        """fn(name) is invoked after a recorder is fully stopped. Used by
+        the live stream service to release its parallel RTSP session."""
+        self._on_remove = fn
+
+    def _wait_cooldown(self, name):
+        """Sleep until at least COOLDOWN_SEC have passed since the last stop
+        of this name, so the camera's RTSP socket is fully released."""
+        COOLDOWN_SEC = 2.0
+        ts = self._recently_stopped.get(name)
+        if not ts:
+            return
+        elapsed = time.time() - ts
+        if elapsed < COOLDOWN_SEC:
+            wait = COOLDOWN_SEC - elapsed
+            logger.info('Cooldown %s: sleeping %.1fs before re-add', name, wait)
+            time.sleep(wait)
+
     def add_camera(self, name, rtsp_uri):
+        # Stop any existing recorder for this name OUTSIDE the lock so other
+        # API calls aren't blocked for the full ~10s ffmpeg shutdown window.
+        existing = None
         with self._lock:
             if name in self._recorders:
-                self._recorders[name].stop()
+                existing = self._recorders.pop(name)
+        if existing:
+            logger.info('Replacing recorder %s — stopping old instance', name)
+            existing.stop()
+            self._recently_stopped[name] = time.time()
+            if self._on_remove:
+                try:
+                    self._on_remove(name)
+                except Exception:
+                    logger.exception('on_remove callback error for %s', name)
+
+        self._wait_cooldown(name)
+
+        with self._lock:
             rec = CameraRecorder(name, rtsp_uri, self.config)
             self._recorders[name] = rec
             rec.start()
+        logger.info('Recorder %s started (rtsp=%s)', name, rtsp_uri)
         self._save_cameras()
 
     def remove_camera(self, name):
         with self._lock:
             rec = self._recorders.pop(name, None)
         if rec:
+            logger.info('Removing recorder %s', name)
             rec.stop()
+            self._recently_stopped[name] = time.time()
+            if self._on_remove:
+                try:
+                    self._on_remove(name)
+                except Exception:
+                    logger.exception('on_remove callback error for %s', name)
         self._save_cameras()
 
     def get_status(self):

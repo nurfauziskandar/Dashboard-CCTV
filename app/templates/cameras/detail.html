@@ -46,7 +46,7 @@
     <div class="card-body p-0" id="streamContainer"
          style="background: #000; position: relative; min-height: 300px;">
         <img id="liveStream"
-             src="{{ url_for('cameras.stream', camera_id=camera.id) }}"
+             src="{{ live_url or url_for('cameras.stream', camera_id=camera.id) }}"
              alt="Live stream - {{ camera.name }}"
              style="width: 100%; display: block; max-height: 500px; object-fit: contain; background: #000;">
         <div id="streamOffline"
@@ -227,10 +227,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Stream controls
     var streamImg = document.getElementById('liveStream');
-    var streamUrl = '{{ url_for("cameras.stream", camera_id=camera.id) }}';
+    var streamUrl = streamImg.getAttribute('src');
     var isPlaying = true;
 
-    // Play / Pause toggle
+    // Play / Pause toggle. Re-uses original src; appends cache buster while
+    // preserving any signed-URL query string the storage backend issued.
     document.getElementById('btnToggleStream').addEventListener('click', function () {
         var icon = document.getElementById('streamToggleIcon');
         if (isPlaying) {
@@ -238,7 +239,8 @@ document.addEventListener('DOMContentLoaded', function () {
             icon.className = 'fa-solid fa-play';
             isPlaying = false;
         } else {
-            streamImg.src = streamUrl + '?t=' + Date.now();
+            var sep = streamUrl.indexOf('?') === -1 ? '?' : '&';
+            streamImg.src = streamUrl + sep + 't=' + Date.now();
             icon.className = 'fa-solid fa-pause';
             isPlaying = true;
         }

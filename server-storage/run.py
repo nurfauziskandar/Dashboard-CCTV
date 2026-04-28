@@ -64,6 +64,13 @@ def create_app(config=None):
     rec_manager = RecordingManager(config)
     app.config['rec_manager'] = rec_manager
 
+    # Init live stream service (lazy MJPEG, refcounted second RTSP session)
+    from recorder.live_stream import LiveStreamService
+    live_service = LiveStreamService(config, rec_manager)
+    app.config['live_service'] = live_service
+    # Free the live capture when its recorder gets removed/replaced
+    rec_manager.set_remove_callback(live_service.stop_one)
+
     # Register blueprints
     from web.routes import bp as web_bp
     from web.auth import bp as auth_bp

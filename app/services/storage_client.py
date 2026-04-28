@@ -101,6 +101,26 @@ class StorageClient:
             log.warning('list_recordings error: %s', e)
         return []
 
+    def live_url(self, name):
+        """Return absolute signed MJPEG URL for a camera, or None on failure."""
+        if not self.enabled:
+            return None
+        try:
+            r = requests.get(
+                f'{self.base_url}/api/live_url/{quote(name, safe="")}',
+                headers=self._headers(),
+                timeout=self.timeout,
+            )
+            if r.status_code == 200:
+                rel = r.json().get('url', '')
+                if rel.startswith('/'):
+                    return f'{self.base_url}{rel}'
+                return rel
+            log.warning('live_url failed: %d', r.status_code)
+        except requests.RequestException as e:
+            log.warning('live_url error: %s', e)
+        return None
+
     def health(self):
         if not self.enabled:
             return False
