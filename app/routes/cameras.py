@@ -188,6 +188,75 @@ def api_discover():
     return jsonify({'devices': result, 'error': None})
 
 
+@bp.route('/import_from_storage', methods=['POST'])
+def import_from_storage():
+    """Pull every camera the storage server already knows about and create
+    a Camera DB row for each one not yet present (matched by slug).
+
+    Lets the user 'discover' cameras that were registered directly on the
+    storage UI, plus pre-seed metadata (ip, port, model, location, etc.)
+    that the storage already has."""
+    storage_client = current_app.config.get('storage_client')
+    camera_service = current_app.config['camera_service']
+    if not storage_client or not storage_client.enabled:
+        flash('Storage backend tidak terkonfigurasi (set STORAGE_URL).', 'warning')
+        return redirect(url_for('cameras.index'))
+
+    from app.services.storage_client import slugify
+
+    storage_cams = storage_client.list_cameras()
+    if not storage_cams:
+        flash('Storage tidak punya kamera terdaftar (atau tidak bisa dijangkau).', 'info')
+        return redirect(url_for('cameras.index'))
+
+    existing_slugs = {slugify(c.name) for c in camera_service.get_all()}
+    imported = 0
+    skipped = 0
+    failed = 0
+    for cam in storage_cams:
+        slug = cam.get('slug') or slugify(cam.get('name', ''))
+        if not slug or not cam.get('name') or not cam.get('rtsp_uri'):
+            continue
+        if slug in existing_slugs:
+            skipped += 1
+            continue
+        data = {
+            'add_mode': 'rtsp',
+            'name': cam['name'],
+            'stream_uri': cam['rtsp_uri'],
+            'ip_address': cam.get('ip_address') or '',
+            'port': cam.get('port') or 554,
+            'manufacturer': cam.get('manufacturer') or 'Pelco',
+            'model': cam.get('model'),
+            'location_name': cam.get('location_name'),
+            'onvif_username': cam.get('onvif_username'),
+            'onvif_password': cam.get('onvif_password'),
+        }
+        if cam.get('latitude') is not None:
+            data['latitude'] = cam['latitude']
+        if cam.get('longitude') is not None:
+            data['longitude'] = cam['longitude']
+        try:
+            camera_service.create(data)
+            imported += 1
+        except Exception as exc:
+            current_app.logger.warning(
+                'import_from_storage: failed for %s: %s', cam.get('name'), exc,
+            )
+            failed += 1
+
+    msg_parts = []
+    if imported:
+        msg_parts.append(f'{imported} kamera diimpor')
+    if skipped:
+        msg_parts.append(f'{skipped} sudah ada')
+    if failed:
+        msg_parts.append(f'{failed} gagal')
+    flash(', '.join(msg_parts) or 'Tidak ada perubahan.',
+          'success' if imported else 'info')
+    return redirect(url_for('cameras.index'))
+
+
 # --- Streaming ---
 
 @bp.route('/<int:camera_id>/stream')

@@ -55,7 +55,21 @@ def add_camera():
         flash('Name and RTSP URI are required.', 'danger')
         return redirect(url_for('web.index'))
 
-    rec_manager.add_camera(name, rtsp_uri)
+    metadata = {}
+    for fld in ('ip_address', 'manufacturer', 'model', 'location_name',
+                'onvif_username', 'onvif_password'):
+        v = (request.form.get(fld) or '').strip()
+        if v:
+            metadata[fld] = v
+    for fld, cast in (('port', int), ('latitude', float), ('longitude', float)):
+        raw = (request.form.get(fld) or '').strip()
+        if raw:
+            try:
+                metadata[fld] = cast(raw)
+            except ValueError:
+                pass
+
+    rec_manager.add_camera(name, rtsp_uri, metadata=metadata or None)
     flash(f'Camera "{name}" added and recording started.', 'success')
     return redirect(url_for('web.index'))
 

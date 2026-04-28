@@ -4,6 +4,13 @@
 {% block page_title %}Cameras{% endblock %}
 
 {% block topbar_actions %}
+<form method="POST" action="{{ url_for('cameras.import_from_storage') }}"
+      onsubmit="return confirm('Impor semua kamera dari storage server ke dashboard?');"
+      class="d-inline">
+    <button type="submit" class="btn btn-ghost btn-sm" title="Tarik semua kamera yang sudah terdaftar di storage server">
+        <i class="fa-solid fa-cloud-arrow-down me-1"></i> Import from Storage
+    </button>
+</form>
 <a href="{{ url_for('cameras.add') }}" class="btn btn-accent btn-sm">
     <i class="fa-solid fa-plus me-1"></i> Add Camera
 </a>

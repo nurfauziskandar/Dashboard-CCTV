@@ -27,13 +27,23 @@ def list_cameras():
     return jsonify({'cameras': rec_manager.get_camera_list()})
 
 
+_META_FIELDS = (
+    'ip_address', 'port', 'manufacturer', 'model',
+    'location_name', 'latitude', 'longitude',
+    'onvif_username', 'onvif_password',
+)
+
+
 @bp.route('/cameras', methods=['POST'])
 @api_token_required
 def register_camera():
     """Register a camera. Body: {name, rtsp_uri, ...metadata}.
 
     Backend computes slug from name. All filesystem and URL paths use
-    the slug; UI keeps the original name.
+    the slug; UI keeps the original name. Optional metadata fields
+    (ip_address, port, manufacturer, model, location_name, latitude,
+    longitude, onvif_username, onvif_password) get stored as-is so the
+    dashboard can pull them on discover.
     """
     rec_manager = current_app.config['rec_manager']
     data = request.get_json(silent=True) or {}
@@ -43,7 +53,8 @@ def register_camera():
     if not name or not rtsp_uri:
         return jsonify({'error': 'name and rtsp_uri required'}), 400
 
-    slug = rec_manager.add_camera(name, rtsp_uri)
+    metadata = {k: data[k] for k in _META_FIELDS if data.get(k) not in (None, '')}
+    slug = rec_manager.add_camera(name, rtsp_uri, metadata=metadata or None)
     return jsonify({'status': 'ok', 'slug': slug, 'name': name}), 201
 
 

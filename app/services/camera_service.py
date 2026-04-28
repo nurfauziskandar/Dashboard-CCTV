@@ -6,6 +6,19 @@ from app.models.camera import Camera
 log = logging.getLogger(__name__)
 
 
+def _camera_metadata(camera):
+    """Optional fields shipped to storage so its discover endpoint can
+    expose them to other dashboards. Skip empty values."""
+    out = {}
+    for fld in ('ip_address', 'port', 'manufacturer', 'model',
+                'location_name', 'latitude', 'longitude',
+                'onvif_username', 'onvif_password'):
+        v = getattr(camera, fld, None)
+        if v not in (None, ''):
+            out[fld] = v
+    return out
+
+
 class CameraService:
 
     def __init__(self, app):
@@ -67,7 +80,10 @@ class CameraService:
 
         # Auto-register to storage backend (best-effort, non-blocking failure)
         if self.storage_client and self.storage_client.enabled and camera.stream_uri:
-            ok = self.storage_client.register_camera(camera.name, camera.stream_uri)
+            metadata = _camera_metadata(camera)
+            ok = self.storage_client.register_camera(
+                camera.name, camera.stream_uri, metadata=metadata,
+            )
             if ok:
                 log.info('Camera %s registered to storage', camera.name)
             else:
@@ -111,7 +127,9 @@ class CameraService:
             if camera.name != old_name or new_uri != old_uri:
                 if camera.name != old_name and old_name:
                     self.storage_client.unregister_camera(old_name)
-                self.storage_client.register_camera(camera.name, new_uri)
+                self.storage_client.register_camera(
+                    camera.name, new_uri, metadata=_camera_metadata(camera),
+                )
 
         return camera
 

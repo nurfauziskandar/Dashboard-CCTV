@@ -54,13 +54,18 @@ class StorageClient:
 
     # --- Cameras ---
 
-    def register_camera(self, name, rtsp_uri):
+    def register_camera(self, name, rtsp_uri, metadata=None):
         if not self.enabled:
             return False
+        body = {'name': name, 'rtsp_uri': rtsp_uri}
+        if metadata:
+            for k, v in metadata.items():
+                if v not in (None, ''):
+                    body[k] = v
         try:
             r = requests.post(
                 f'{self.base_url}/api/cameras',
-                json={'name': name, 'rtsp_uri': rtsp_uri},
+                json=body,
                 headers=self._headers(),
                 timeout=self.timeout,
             )

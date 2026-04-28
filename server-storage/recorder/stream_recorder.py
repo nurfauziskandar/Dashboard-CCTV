@@ -460,9 +460,18 @@ class RecordingManager:
     persisted to retention.json.
     """
 
+    # Optional metadata fields persisted to cameras.json alongside slug/name/rtsp_uri.
+    # Recorder doesn't use these; dashboard's discover endpoint pulls them in.
+    _META_FIELDS = (
+        'ip_address', 'port', 'manufacturer', 'model',
+        'location_name', 'latitude', 'longitude',
+        'onvif_username', 'onvif_password',
+    )
+
     def __init__(self, config):
         self.config = config
         self._recorders = {}
+        self._metadata = {}  # slug -> dict of optional metadata fields
         self._lock = threading.Lock()
         self._cleanup_thread = None
         self._running = False
@@ -519,7 +528,8 @@ class RecordingManager:
                 if not display_name or not rtsp_uri:
                     logger.warning('Skipping malformed entry: %s', cam)
                     continue
-                self.add_camera(display_name, rtsp_uri)
+                meta = {k: cam[k] for k in self._META_FIELDS if k in cam}
+                self.add_camera(display_name, rtsp_uri, metadata=meta or None)
             except Exception:
                 logger.exception('Failed to resume camera %s', cam)
         self._cleanup_thread = threading.Thread(
@@ -551,8 +561,10 @@ class RecordingManager:
             logger.info('Cooldown %s: sleeping %.1fs before re-add', name, wait)
             time.sleep(wait)
 
-    def add_camera(self, display_name, rtsp_uri):
-        """Register a camera under its slug. display_name is preserved for UI."""
+    def add_camera(self, display_name, rtsp_uri, metadata=None):
+        """Register a camera under its slug. display_name is preserved for UI.
+        metadata is an optional dict of fields (ip_address, model, etc.) that
+        the dashboard's discover endpoint can consume."""
         slug = slugify(display_name)
         # Stop any existing recorder for this slug OUTSIDE the lock so other
         # API calls aren't blocked for the full ~10s ffmpeg shutdown window.
@@ -575,6 +587,11 @@ class RecordingManager:
         with self._lock:
             rec = CameraRecorder(slug, display_name, rtsp_uri, self.config)
             self._recorders[slug] = rec
+            if metadata:
+                clean = {k: v for k, v in metadata.items()
+                         if k in self._META_FIELDS and v not in (None, '')}
+                if clean:
+                    self._metadata[slug] = clean
             rec.start()
         logger.info('Recorder %s started (rtsp=%s, display=%r)', slug, rtsp_uri, display_name)
         self._save_cameras()
@@ -586,6 +603,7 @@ class RecordingManager:
         slug = slugify(slug) if slug else slug
         with self._lock:
             rec = self._recorders.pop(slug, None)
+            self._metadata.pop(slug, None)
         if rec:
             logger.info('Removing recorder %s', slug)
             rec.stop()
@@ -615,14 +633,18 @@ class RecordingManager:
 
     def get_camera_list(self):
         with self._lock:
-            return [
-                {
+            out = []
+            for slug, rec in self._recorders.items():
+                entry = {
                     'slug': slug,
                     'name': rec.display_name,
                     'rtsp_uri': rec.rtsp_uri,
                 }
-                for slug, rec in self._recorders.items()
-            ]
+                meta = self._metadata.get(slug)
+                if meta:
+                    entry.update(meta)
+                out.append(entry)
+            return out
 
     def get_recorder(self, slug):
         with self._lock:
@@ -700,7 +722,12 @@ class RecordingManager:
                 name = entry.get('name') or entry.get('slug')
                 if not rtsp or not name:
                     continue
-                out.append({'name': name, 'rtsp_uri': rtsp})
+                normal = {'name': name, 'rtsp_uri': rtsp}
+                # Preserve any optional metadata fields
+                for k in self._META_FIELDS:
+                    if entry.get(k) not in (None, ''):
+                        normal[k] = entry[k]
+                out.append(normal)
             return out
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning('cameras.json load failed (%s) — starting empty', exc)

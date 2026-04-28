@@ -323,7 +323,7 @@
 
 <!-- Add Camera Modal -->
 <div class="modal fade" id="addCameraModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content" style="background: var(--bg-card); border-color: var(--border-color);">
             <form method="POST" action="{{ url_for('web.add_camera') }}">
                 <div class="modal-header" style="border-color: var(--border-color);">
@@ -333,16 +333,58 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Camera Name</label>
-                        <input type="text" class="form-control" name="name" placeholder="e.g. Lobby Utama" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">RTSP URI</label>
-                        <input type="text" class="form-control" name="rtsp_uri"
-                               placeholder="rtsp://admin:admin@192.168.1.101:554/stream1" required>
-                        <div class="form-text" style="font-size: 0.75rem;">
-                            Format Pelco: rtsp://&lt;user&gt;:&lt;pass&gt;@&lt;ip&gt;:554/stream1
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Camera Name <span style="color:var(--danger);">*</span></label>
+                            <input type="text" class="form-control" name="name" placeholder="e.g. Lobby Utama" required>
+                            <div class="form-text" style="font-size: 0.72rem;">UI menampilkan nama ini apa adanya. Backend pakai slug otomatis (spasi → underscore).</div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">RTSP URI <span style="color:var(--danger);">*</span></label>
+                            <input type="text" class="form-control" name="rtsp_uri"
+                                   placeholder="rtsp://admin:admin@192.168.1.101:554/stream1" required>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">IP Address</label>
+                            <input type="text" class="form-control" name="ip_address" placeholder="192.168.1.101">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" name="port" value="554">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Manufacturer</label>
+                            <select class="form-select" name="manufacturer">
+                                <option value="Pelco">Pelco</option>
+                                <option value="Hikvision">Hikvision</option>
+                                <option value="Dahua">Dahua</option>
+                                <option value="Axis">Axis</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Model</label>
+                            <input type="text" class="form-control" name="model" placeholder="Sarix IBP235">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Location Name</label>
+                            <input type="text" class="form-control" name="location_name" placeholder="Gedung A — Lobby">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Latitude</label>
+                            <input type="number" step="any" class="form-control" name="latitude" placeholder="-6.2088">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Longitude</label>
+                            <input type="number" step="any" class="form-control" name="longitude" placeholder="106.8456">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">ONVIF Username <span style="font-size:0.72rem;color:var(--text-muted);">(opsional)</span></label>
+                            <input type="text" class="form-control" name="onvif_username">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">ONVIF Password <span style="font-size:0.72rem;color:var(--text-muted);">(opsional)</span></label>
+                            <input type="password" class="form-control" name="onvif_password">
                         </div>
                     </div>
                 </div>
