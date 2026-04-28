@@ -670,6 +670,14 @@ class RecordingManager:
             rec = self._recorders.get(slug)
         return rec.current_segment_file if rec else None
 
+    def is_recording(self, slug):
+        """True iff a recorder for `slug` exists and is actively recording.
+        When True, the newest file in the camera's folder is the segment
+        ffmpeg is writing right now — list_recordings hides it."""
+        with self._lock:
+            rec = self._recorders.get(slug)
+        return bool(rec and rec.status in ('recording', 'starting'))
+
     def get_recordings_info(self):
         rec_dir = self.config.RECORDINGS_DIR
         if not os.path.exists(rec_dir):

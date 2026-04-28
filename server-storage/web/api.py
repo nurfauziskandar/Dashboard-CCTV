@@ -66,38 +66,64 @@ def unregister_camera(slug):
     return jsonify({'status': 'ok'})
 
 
-@bp.route('/recordings/<slug>', methods=['GET'])
-@api_token_required
-def list_recordings(slug):
-    """Return finalised recordings only. The segment ffmpeg is currently
-    writing has no moov atom yet, so it can't be played — hide it."""
+def _finalised_segments(cam_dir, in_progress, is_recording):
+    """Return list of (filename, stat) for finalised .mp4 files only.
+
+    Three independent guards — any one is enough to hide a file that's
+    still being written:
+
+      1. ffmpeg's `_current_segment_file` (parsed from stderr "Opening")
+         — primary, but stderr can lag a beat
+      2. when the recorder is actively recording, the newest file in
+         the folder is by definition the one ffmpeg has open right now
+         (segment muxer rule)
+      3. mtime within 5s — defensive backstop for the gap between
+         segment close and next "Opening" log
+    """
     import time as _t
-    cfg = current_app.config['APP_CONFIG']
-    rec_manager = current_app.config['rec_manager']
-    cam_dir = os.path.join(cfg.RECORDINGS_DIR, slug)
     if not os.path.isdir(cam_dir):
-        return jsonify({'camera': slug, 'files': []})
-
-    in_progress = rec_manager.in_progress_filename(slug)
-    now = _t.time()
-
-    files = []
-    for f in sorted(os.listdir(cam_dir), reverse=True):
+        return []
+    candidates = []
+    for f in os.listdir(cam_dir):
         fpath = os.path.join(cam_dir, f)
         if not (os.path.isfile(fpath) and f.endswith('.mp4')):
             continue
-        if in_progress and f == in_progress:
+        candidates.append((f, os.stat(fpath)))
+    candidates.sort(key=lambda x: x[1].st_mtime, reverse=True)
+
+    now = _t.time()
+    out = []
+    for idx, (name, st) in enumerate(candidates):
+        # Guard 1: explicit in-progress filename from ffmpeg stderr
+        if in_progress and name == in_progress:
             continue
-        stat = os.stat(fpath)
-        # Belt-and-braces: even if we don't know the in-progress name, skip
-        # files modified within the last 3s — they're likely still being
-        # written (segment muxer flushes mtime each write).
-        if (now - stat.st_mtime) < 3:
+        # Guard 2: recorder is active and this is the newest file
+        if is_recording and idx == 0:
             continue
-        path = f'/api/recordings/{slug}/{f}'
+        # Guard 3: file modified less than 5s ago (covers stderr lag)
+        if (now - st.st_mtime) < 5:
+            continue
+        out.append((name, st))
+    return out
+
+
+@bp.route('/recordings/<slug>', methods=['GET'])
+@api_token_required
+def list_recordings(slug):
+    """Return finalised recordings only. See _finalised_segments() for the
+    three-layered hide rule."""
+    cfg = current_app.config['APP_CONFIG']
+    rec_manager = current_app.config['rec_manager']
+    cam_dir = os.path.join(cfg.RECORDINGS_DIR, slug)
+    in_progress = rec_manager.in_progress_filename(slug)
+    is_rec = rec_manager.is_recording(slug)
+
+    files = []
+    for name, stat in _finalised_segments(cam_dir, in_progress, is_rec):
+        path = f'/api/recordings/{slug}/{name}'
         qs = sign_url(path)
         files.append({
-            'name': f,
+            'name': name,
             'size_mb': round(stat.st_size / 1e6, 1),
             'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
             'url': f'{path}?{qs}',

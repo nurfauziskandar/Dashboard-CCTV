@@ -107,13 +107,11 @@ def update_retention():
 @bp.route('/recordings')
 @login_required
 def recordings():
-    import time as _t
     config = current_app.config['APP_CONFIG']
     rec_manager = current_app.config['rec_manager']
     rec_dir = config.RECORDINGS_DIR
 
     name_map = {c['slug']: c['name'] for c in rec_manager.get_camera_list()}
-    now = _t.time()
 
     cameras = {}
     if os.path.exists(rec_dir):
@@ -122,22 +120,8 @@ def recordings():
             if not os.path.isdir(cam_dir):
                 continue
             in_progress = rec_manager.in_progress_filename(slug)
-            files = []
-            for f in sorted(os.listdir(cam_dir), reverse=True):
-                fpath = os.path.join(cam_dir, f)
-                if not (os.path.isfile(fpath) and f.endswith('.mp4')):
-                    continue
-                if in_progress and f == in_progress:
-                    continue
-                stat = os.stat(fpath)
-                if (now - stat.st_mtime) < 3:
-                    continue
-                files.append({
-                    'name': f,
-                    'size_mb': round(stat.st_size / 1e6, 1),
-                    'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
-                    'mtime': stat.st_mtime,
-                })
+            is_rec = rec_manager.is_recording(slug)
+            files = _list_finalised(cam_dir, in_progress, is_rec)
             if files:
                 cameras[slug] = {
                     'display_name': name_map.get(slug, slug),
@@ -147,25 +131,17 @@ def recordings():
     return render_template('recordings.html', cameras=cameras, config=config)
 
 
-def _list_finalised(cam_dir, in_progress):
-    import time as _t
-    now = _t.time()
-    out = []
-    for f in sorted(os.listdir(cam_dir), reverse=True):
-        fpath = os.path.join(cam_dir, f)
-        if not (os.path.isfile(fpath) and f.endswith('.mp4')):
-            continue
-        if in_progress and f == in_progress:
-            continue
-        stat = os.stat(fpath)
-        if (now - stat.st_mtime) < 3:
-            continue
-        out.append({
-            'name': f,
+def _list_finalised(cam_dir, in_progress, is_recording):
+    """Same hide rule as the JSON API — see web/api.py _finalised_segments."""
+    from web.api import _finalised_segments
+    return [
+        {
+            'name': name,
             'size_mb': round(stat.st_size / 1e6, 1),
             'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
-        })
-    return out
+        }
+        for name, stat in _finalised_segments(cam_dir, in_progress, is_recording)
+    ]
 
 
 @bp.route('/playback/<slug>')
@@ -182,7 +158,8 @@ def playback(slug):
     display_name = name_map.get(slug, slug)
 
     in_progress = rec_manager.in_progress_filename(slug)
-    files = _list_finalised(cam_dir, in_progress)
+    is_rec = rec_manager.is_recording(slug)
+    files = _list_finalised(cam_dir, in_progress, is_rec)
 
     selected = request.args.get('file', files[0]['name'] if files else None)
     return render_template('playback.html', slug=slug, camera_name=display_name,
@@ -199,7 +176,8 @@ def playback_files_json(slug):
     if not os.path.isdir(cam_dir):
         return jsonify({'files': []})
     in_progress = rec_manager.in_progress_filename(slug)
-    return jsonify({'files': _list_finalised(cam_dir, in_progress)})
+    is_rec = rec_manager.is_recording(slug)
+    return jsonify({'files': _list_finalised(cam_dir, in_progress, is_rec)})
 
 
 @bp.route('/recordings/<slug>/<filename>/delete', methods=['POST'])
