@@ -197,24 +197,23 @@ flowchart LR
 
 Dashboard dan Server-Storage berjalan **terpisah** (host beda boleh). Pola integrasi:
 
-```
-┌────────────────┐                    ┌──────────────────────┐
-│  Dashboard     │  Live: direct RTSP │   Kamera CCTV        │
-│  (host A)      │ ──────────────────►│   (RTSP stream)      │
-│                │                    │                      │
-│                │  Recorder: RTSP    │                      │
-│                │ ◄──────── direct ──┤                      │
-└──────┬─────────┘                    └──────────────────────┘
-       │ Auto-register (POST /api/cameras)
-       │ Playback list (GET /api/recordings/<cam>)
-       ▼
-┌────────────────────┐                ┌──────────────────────┐
-│  Server-Storage    │  Record RTSP   │   Kamera CCTV        │
-│  (host B)          │ ◄──────────────┤   (sama dgn atas)    │
-│  - REST API        │                │                      │
-│  - MP4 store       │                │                      │
-│  - Signed URL      │                │                      │
-└────────────────────┘                └──────────────────────┘
+```mermaid
+flowchart TB
+    CAM["🎥 Kamera CCTV\n(RTSP stream)"]
+
+    subgraph HostA["Host A · Port 5000"]
+        DASH["Dashboard CCTV"]
+    end
+
+    subgraph HostB["Host B · Port 8080"]
+        STOR["Server-Storage\n• REST API\n• MP4 store\n• Signed URL"]
+    end
+
+    DASH -->|"Live: direct RTSP"| CAM
+    CAM -->|"Recorder: RTSP direct"| DASH
+    DASH -->|"Auto-register\nPOST /api/cameras"| STOR
+    DASH -->|"Playback list\nGET /api/recordings/&lt;cam&gt;"| STOR
+    STOR -->|"Record RTSP"| CAM
 ```
 
 ### Cara kerja
@@ -225,52 +224,27 @@ Dashboard dan Server-Storage berjalan **terpisah** (host beda boleh). Pola integ
 
 ### Flow Penambahan Kamera (langkah demi langkah)
 
-```
-                   ┌──────────────────────┐
-                   │  User klik           │
-                   │  "Add Camera"        │
-                   └──────────┬───────────┘
-                              ▼
-        ┌─────────────────────────────────────────────┐
-        │  Form (mode RTSP atau ONVIF)                │
-        │   - name, ip, RTSP URI / ONVIF user/pass    │
-        │   - lat/lng (opsional)                      │
-        └──────────────────────┬──────────────────────┘
-                               ▼
-                    ┌──────────────────────┐
-                    │  POST /cameras/add   │
-                    │  → CameraService     │
-                    └──────────┬───────────┘
-                               ▼
-              ┌────────────────┴───────────────┐
-              │                                │
-         add_mode=rtsp                    add_mode=onvif
-              │                                │
-              ▼                                ▼
-   simpan stream_uri saja        ONVIFAdapter.probe()
-                                 - GetDeviceInformation
-                                 - GetStreamUri  → rtsp://...
-                                 - GetSnapshotUri
-                                                │
-              └────────────────┬───────────────┘
-                               ▼
-                    ┌──────────────────────┐
-                    │  INSERT camera row   │
-                    │  (DB SQLite)         │
-                    └──────────┬───────────┘
-                               ▼
-                    ┌──────────────────────┐
-                    │  StorageClient       │
-                    │  POST /api/cameras   │  ← X-API-Token
-                    │  {name, rtsp_uri}    │
-                    └──────────┬───────────┘
-                               ▼
-                    ┌──────────────────────┐
-                    │  Server-Storage      │
-                    │  RecordingManager    │
-                    │  + CameraRecorder    │
-                    │  → mulai rekam MP4   │
-                    └──────────────────────┘
+```mermaid
+flowchart TD
+    Start(["User klik 'Add Camera'"]) --> Form
+
+    Form["Form Input\n• name, ip_address\n• RTSP URI atau ONVIF user/pass\n• lat/lng opsional"]
+    Form --> Submit["POST /cameras/add → CameraService"]
+    Submit --> Mode{add_mode?}
+
+    Mode -->|"rtsp"| SaveRTSP["Simpan stream_uri\nlangsung ke DB"]
+    Mode -->|"onvif"| Probe["ONVIFAdapter.probe()\nGetDeviceInformation\nGetStreamUri → rtsp://...\nGetSnapshotUri"]
+
+    SaveRTSP --> Insert
+    Probe --> Insert["INSERT camera row\n(SQLite)"]
+
+    Insert --> HasStorage{STORAGE_URL\ndi-set?}
+
+    HasStorage -->|"Tidak"| Done1(["Selesai — standalone mode"])
+    HasStorage -->|"Ya"| StorageAPI["StorageClient\nPOST /api/cameras\n{name, rtsp_uri}\nX-API-Token: …"]
+
+    StorageAPI --> Recorder["Server-Storage\nRecordingManager + CameraRecorder\n→ mulai rekam MP4"]
+    Recorder --> Done2(["Selesai"])
 ```
 
 **Sumber stream untuk masing-masing fungsi:**
@@ -391,22 +365,20 @@ Berikut adalah semua protokol dan port yang digunakan oleh sistem:
 
 ### Ringkasan Firewall Rules
 
-```
-Dashboard Server --> Kamera Pelco:
-  ALLOW TCP 80   (ONVIF SOAP)
-  ALLOW TCP 554  (RTSP stream)
-  ALLOW UDP 3702 (WS-Discovery, opsional)
+```mermaid
+flowchart LR
+    Browser["🌐 Browser"]
+    DashSrv["Dashboard Server\n(host A)"]
+    CAM["Kamera Pelco\nONVIF / RTSP"]
+    iDRAC["iDRAC VX Storage\nRedfish HTTPS"]
+    NSM["Endura NSM5200\nSNMP"]
 
-Dashboard Server --> iDRAC VX Storage:
-  ALLOW TCP 443  (Redfish HTTPS)
-
-Dashboard Server --> Endura NSM5200:
-  ALLOW UDP 161  (SNMP)
-
-Browser --> Dashboard Server:
-  ALLOW TCP 5000 (development)
-  ALLOW TCP 80   (production via Nginx)
-  ALLOW TCP 443  (production via Nginx + SSL)
+    Browser -->|"TCP 5000 dev\nTCP 80/443 prod"| DashSrv
+    DashSrv -->|"TCP 80 — ONVIF SOAP"| CAM
+    DashSrv -->|"TCP 554 — RTSP stream"| CAM
+    DashSrv -.->|"UDP 3702 — WS-Discovery opsional"| CAM
+    DashSrv -->|"TCP 443 — Redfish HTTPS"| iDRAC
+    DashSrv -->|"UDP 161 — SNMP"| NSM
 ```
 
 ---
@@ -1610,6 +1582,105 @@ python -c "from wsdiscovery.discovery import ThreadedWSDiscovery; print('OK')"
 ---
 
 ## Struktur Database
+
+### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    server ||--o{ hdd : "has"
+    server ||--o{ psu : "has"
+    server |o--o{ status_snapshot : "archived_as"
+
+    camera {
+        int id PK
+        string name
+        string ip_address
+        int port
+        string onvif_username
+        string onvif_password
+        string manufacturer
+        string model
+        string firmware
+        string location_name
+        float latitude
+        float longitude
+        string stream_uri
+        string snapshot_uri
+        boolean is_active
+        datetime last_seen
+    }
+
+    server {
+        int id PK
+        string name
+        string ip_address
+        string description
+        string server_type
+        string idrac_ip
+        string idrac_username
+        string idrac_password
+        string snmp_community
+        string system_model
+        string serial_number
+        string power_state
+        string health_rollup
+        float inlet_temp
+        float exhaust_temp
+        float cpu_usage
+        float memory_usage
+        boolean is_online
+        datetime last_checked
+    }
+
+    hdd {
+        int id PK
+        int server_id FK
+        string device_name
+        string slot
+        string model
+        string serial
+        string media_type
+        string protocol
+        float capacity_gb
+        float used_gb
+        float temperature_c
+        string health_status
+        string state
+        int predicted_life_left
+        int power_on_hours
+        int reallocated_sectors
+        int pending_sectors
+        datetime last_checked
+    }
+
+    psu {
+        int id PK
+        int server_id FK
+        string name
+        string model
+        string health_status
+        float power_watts
+        float capacity_watts
+        datetime last_checked
+    }
+
+    status_snapshot {
+        int id PK
+        date snapshot_date
+        int server_id FK
+        string server_name
+        boolean is_online
+        string health_rollup
+        float inlet_temp
+        float cpu_usage
+        float memory_usage
+        int hdd_total
+        int hdd_alerts
+        int cam_total
+        int cam_active
+        int cam_inactive
+    }
+```
 
 ### Tabel `camera`
 
