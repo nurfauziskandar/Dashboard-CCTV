@@ -1578,7 +1578,7 @@ python -c "from wsdiscovery.discovery import ThreadedWSDiscovery; print('OK')"
 erDiagram
     server ||--o{ hdd : "has"
     server ||--o{ psu : "has"
-    server |o--o{ status_snapshot : "archived_as"
+    server ||--o{ status_snapshot : "archived_as"
 
     camera {
         int id PK
