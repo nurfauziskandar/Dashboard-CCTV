@@ -198,22 +198,21 @@ flowchart LR
 Dashboard dan Server-Storage berjalan **terpisah** (host beda boleh). Pola integrasi:
 
 ```mermaid
-flowchart TB
-    CAM["🎥 Kamera CCTV\n(RTSP stream)"]
-
-    subgraph HostA["Host A · Port 5000"]
-        DASH["Dashboard CCTV"]
+flowchart LR
+    subgraph A["Host A · Port 5000"]
+        DASH[Dashboard CCTV]
     end
 
-    subgraph HostB["Host B · Port 8080"]
-        STOR["Server-Storage\n• REST API\n• MP4 store\n• Signed URL"]
+    CAM([Kamera CCTV])
+
+    subgraph B["Host B · Port 8080"]
+        STOR["Server-Storage\nREST API · MP4 · Signed URL"]
     end
 
-    DASH -->|"Live: direct RTSP"| CAM
-    CAM -->|"Recorder: RTSP direct"| DASH
-    DASH -->|"Auto-register\nPOST /api/cameras"| STOR
-    DASH -->|"Playback list\nGET /api/recordings/&lt;cam&gt;"| STOR
-    STOR -->|"Record RTSP"| CAM
+    DASH -- Live RTSP --> CAM
+    STOR -- Record RTSP --> CAM
+    DASH -- POST /api/cameras --> STOR
+    DASH -- GET /api/recordings --> STOR
 ```
 
 ### Cara kerja
@@ -226,25 +225,20 @@ flowchart TB
 
 ```mermaid
 flowchart TD
-    Start(["User klik 'Add Camera'"]) --> Form
+    A([User klik Add Camera]) --> B[Form Input\nname · ip · RTSP URI atau ONVIF creds · lat/lng]
+    B --> C[POST /cameras/add]
+    C --> D{add_mode}
 
-    Form["Form Input\n• name, ip_address\n• RTSP URI atau ONVIF user/pass\n• lat/lng opsional"]
-    Form --> Submit["POST /cameras/add → CameraService"]
-    Submit --> Mode{add_mode?}
+    D -- rtsp --> E[Simpan stream_uri]
+    D -- onvif --> F[ONVIFAdapter.probe\nGetDeviceInformation\nGetStreamUri\nGetSnapshotUri]
 
-    Mode -->|"rtsp"| SaveRTSP["Simpan stream_uri\nlangsung ke DB"]
-    Mode -->|"onvif"| Probe["ONVIFAdapter.probe()\nGetDeviceInformation\nGetStreamUri → rtsp://...\nGetSnapshotUri"]
+    E & F --> G[INSERT camera ke SQLite]
 
-    SaveRTSP --> Insert
-    Probe --> Insert["INSERT camera row\n(SQLite)"]
-
-    Insert --> HasStorage{STORAGE_URL\ndi-set?}
-
-    HasStorage -->|"Tidak"| Done1(["Selesai — standalone mode"])
-    HasStorage -->|"Ya"| StorageAPI["StorageClient\nPOST /api/cameras\n{name, rtsp_uri}\nX-API-Token: …"]
-
-    StorageAPI --> Recorder["Server-Storage\nRecordingManager + CameraRecorder\n→ mulai rekam MP4"]
-    Recorder --> Done2(["Selesai"])
+    G --> H{STORAGE_URL di-set?}
+    H -- Tidak --> I([Selesai - standalone])
+    H -- Ya --> J[StorageClient\nPOST /api/cameras\nname + rtsp_uri + X-API-Token]
+    J --> K[Server-Storage CameraRecorder\nmulai rekam MP4]
+    K --> L([Selesai])
 ```
 
 **Sumber stream untuk masing-masing fungsi:**
@@ -367,18 +361,13 @@ Berikut adalah semua protokol dan port yang digunakan oleh sistem:
 
 ```mermaid
 flowchart LR
-    Browser["🌐 Browser"]
-    DashSrv["Dashboard Server\n(host A)"]
-    CAM["Kamera Pelco\nONVIF / RTSP"]
-    iDRAC["iDRAC VX Storage\nRedfish HTTPS"]
-    NSM["Endura NSM5200\nSNMP"]
+    Browser[Browser] -->|TCP 5000/80/443| Dash[Dashboard Server]
 
-    Browser -->|"TCP 5000 dev\nTCP 80/443 prod"| DashSrv
-    DashSrv -->|"TCP 80 — ONVIF SOAP"| CAM
-    DashSrv -->|"TCP 554 — RTSP stream"| CAM
-    DashSrv -.->|"UDP 3702 — WS-Discovery opsional"| CAM
-    DashSrv -->|"TCP 443 — Redfish HTTPS"| iDRAC
-    DashSrv -->|"UDP 161 — SNMP"| NSM
+    Dash -->|TCP 80 ONVIF| CAM[Kamera Pelco]
+    Dash -->|TCP 554 RTSP| CAM
+    Dash -.->|UDP 3702 WS-Discovery| CAM
+    Dash -->|TCP 443 Redfish| IDRAC[iDRAC VxStorage]
+    Dash -->|UDP 161 SNMP| NSM[Endura NSM5200]
 ```
 
 ---
