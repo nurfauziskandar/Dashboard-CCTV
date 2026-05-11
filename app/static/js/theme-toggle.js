@@ -42,5 +42,31 @@
         if (sidebarToggle) sidebarToggle.addEventListener('click', openSidebar);
         if (sidebarClose) sidebarClose.addEventListener('click', closeSidebar);
         if (overlay) overlay.addEventListener('click', closeSidebar);
+
+        // Sidebar collapse (desktop)
+        var COLLAPSE_KEY = 'cctv-sidebar-collapsed';
+        var collapseBtn = document.getElementById('sidebarCollapseBtn');
+        var mainContent = document.querySelector('.main-content');
+
+        function applySidebarCollapse(collapsed) {
+            if (collapsed) {
+                sidebar.classList.add('collapsed');
+                if (mainContent) mainContent.classList.add('sidebar-collapsed');
+            } else {
+                sidebar.classList.remove('collapsed');
+                if (mainContent) mainContent.classList.remove('sidebar-collapsed');
+            }
+            localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
+        }
+
+        if (localStorage.getItem(COLLAPSE_KEY) === '1') {
+            applySidebarCollapse(true);
+        }
+
+        if (collapseBtn) {
+            collapseBtn.addEventListener('click', function () {
+                applySidebarCollapse(!sidebar.classList.contains('collapsed'));
+            });
+        }
     });
 })();

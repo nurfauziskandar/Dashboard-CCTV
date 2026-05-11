@@ -72,26 +72,29 @@ def _build_chart_data(by_date, server_id_filter):
         cam_inactive.append(agg.cam_inactive if agg and agg.cam_inactive is not None else None)
 
     # Health time series — count of OK/Warning/Critical servers per date
+    # + per-date server name lists for tooltip detail
     health_ts = {'OK': [], 'Warning': [], 'Critical': []}
+    health_servers = {}
     for d in sorted_dates_asc:
         counts = {'OK': 0, 'Warning': 0, 'Critical': 0}
+        detail = {'OK': [], 'Warning': [], 'Critical': []}
         for s in by_date.get(d, {}).get('servers', []):
             if sid_filter and s.server_id != sid_filter:
                 continue
             key = s.health_rollup if s.health_rollup in counts else 'OK'
             counts[key] += 1
+            if s.server_name:
+                detail[key].append(s.server_name)
         for k in health_ts:
             health_ts[k].append(counts[k])
-
-    # Latest camera stats
-    latest_date = max(by_date.keys()) if by_date else None
-    latest_agg = by_date[latest_date]['aggregate'] if latest_date else None
+        health_servers[d.isoformat()] = detail
 
     return {
         'labels': labels,
         'servers': servers_ts,
         'cameras': {'active': cam_active, 'inactive': cam_inactive},
         'health_ts': health_ts,
+        'health_servers': health_servers,
     }
 
 

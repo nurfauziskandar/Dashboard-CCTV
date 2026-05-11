@@ -115,61 +115,20 @@
 {% if sorted_dates %}
 <div id="chartsSection">
 
-    {# Row 1: CPU + Memory line charts #}
     <div class="row g-3 mb-3">
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><i class="fa-solid fa-microchip me-2"></i>CPU Usage (%)</div>
-                <div class="card-body" style="min-height:220px;">
-                    <canvas id="chartCpu"></canvas>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><i class="fa-solid fa-memory me-2"></i>Memory Usage (%)</div>
-                <div class="card-body" style="min-height:220px;">
-                    <canvas id="chartMemory"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    {# Row 2: Inlet Temp + Server Health line #}
-    <div class="row g-3 mb-3">
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><i class="fa-solid fa-temperature-half me-2"></i>Inlet Temperature (&deg;C)</div>
-                <div class="card-body" style="min-height:220px;">
-                    <canvas id="chartTemp"></canvas>
-                </div>
-            </div>
-        </div>
         <div class="col-lg-6">
             <div class="card h-100">
                 <div class="card-header"><i class="fa-solid fa-heart-pulse me-2"></i>Server Health (OK / Warning / Critical)</div>
-                <div class="card-body" style="min-height:220px;">
+                <div class="card-body" style="min-height:260px;">
                     <canvas id="chartHealth"></canvas>
                 </div>
             </div>
         </div>
-    </div>
-
-    {# Row 3: Camera trend + HDD Total #}
-    <div class="row g-3 mb-3">
         <div class="col-lg-6">
             <div class="card h-100">
                 <div class="card-header"><i class="fa-solid fa-video me-2"></i>Camera Active Trend</div>
-                <div class="card-body" style="min-height:220px;">
+                <div class="card-body" style="min-height:260px;">
                     <canvas id="chartCamTrend"></canvas>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><i class="fa-solid fa-hard-drive me-2"></i>HDD Total per Server</div>
-                <div class="card-body" style="min-height:220px;">
-                    <canvas id="chartHddTotal"></canvas>
                 </div>
             </div>
         </div>
@@ -371,23 +330,16 @@
     var gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)';
     var textColor = isDark ? '#adb5bd' : '#6c757d';
 
-    var PALETTE = [
-        '#4e9fdd','#f5a623','#7ed321','#9b59b6','#1abc9c',
-        '#e74c3c','#f39c12','#2ecc71','#3498db','#e67e22',
-    ];
-
     var labels = RAW.labels;
-    var servers = RAW.servers;   // { serverName: { cpu, memory, inlet_temp, hdd_alerts, hdd_total, online } }
-    var serverNames = Object.keys(servers);
+    var pr = labels.length > 14 ? 2 : 4;
 
-    // ── Shared options ──
-    function lineOpts(title, unit) {
+    function baseOpts() {
         return {
             responsive: true,
             maintainAspectRatio: true,
+            interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: { labels: { color: textColor, boxWidth: 12, font: { size: 11 } } },
-                tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + (ctx.parsed.y !== null ? ctx.parsed.y + (unit || '') : 'N/A'); } } },
             },
             scales: {
                 x: { ticks: { color: textColor, maxTicksLimit: 10, font: { size: 10 } }, grid: { color: gridColor } },
@@ -396,98 +348,59 @@
         };
     }
 
-    function makeLineDatasets(metric, unit) {
-        return serverNames.map(function(name, i) {
-            return {
-                label: name,
-                data: servers[name][metric],
-                borderColor: PALETTE[i % PALETTE.length],
-                backgroundColor: PALETTE[i % PALETTE.length] + '22',
-                tension: 0.3,
-                pointRadius: labels.length > 14 ? 2 : 4,
-                fill: false,
-                spanGaps: true,
-            };
-        });
-    }
-
-    // ── CPU line ──
-    var cpuEl = document.getElementById('chartCpu');
-    if (cpuEl && serverNames.length) {
-        new Chart(cpuEl, { type: 'line', data: { labels: labels, datasets: makeLineDatasets('cpu') }, options: lineOpts('CPU', '%') });
-    }
-
-    // ── Memory line ──
-    var memEl = document.getElementById('chartMemory');
-    if (memEl && serverNames.length) {
-        new Chart(memEl, { type: 'line', data: { labels: labels, datasets: makeLineDatasets('memory') }, options: lineOpts('Mem', '%') });
-    }
-
-    // ── Inlet Temp line ──
-    var tempEl = document.getElementById('chartTemp');
-    if (tempEl && serverNames.length) {
-        new Chart(tempEl, { type: 'line', data: { labels: labels, datasets: makeLineDatasets('inlet_temp') }, options: lineOpts('Temp', '°C') });
-    }
-
-    // ── Server Health line (OK / Warning / Critical count per day) ──
+    // ── Server Health line — tooltip shows which servers per status ──
     var healthEl = document.getElementById('chartHealth');
     if (healthEl && RAW.health_ts) {
         var ht = RAW.health_ts;
+        var opts = baseOpts();
+        opts.plugins.tooltip = {
+            callbacks: {
+                label: function (ctx) {
+                    var status = ctx.dataset.label;
+                    var dateLabel = ctx.label;
+                    var detail = RAW.health_servers && RAW.health_servers[dateLabel];
+                    var names = detail ? (detail[status] || []) : [];
+                    var line = status + ': ' + ctx.parsed.y + ' server';
+                    if (names.length) line += ' (' + names.join(', ') + ')';
+                    return line;
+                },
+            },
+        };
         new Chart(healthEl, {
             type: 'line',
             data: {
                 labels: labels,
                 datasets: [
-                    { label: 'OK',       data: ht['OK'],       borderColor: '#7ed321', backgroundColor: '#7ed32122', tension: 0.3, fill: false, spanGaps: true, pointRadius: labels.length > 14 ? 2 : 4 },
-                    { label: 'Warning',  data: ht['Warning'],  borderColor: '#f5a623', backgroundColor: '#f5a62322', tension: 0.3, fill: false, spanGaps: true, pointRadius: labels.length > 14 ? 2 : 4 },
-                    { label: 'Critical', data: ht['Critical'], borderColor: '#e74c3c', backgroundColor: '#e74c3c22', tension: 0.3, fill: false, spanGaps: true, pointRadius: labels.length > 14 ? 2 : 4 },
+                    { label: 'OK',       data: ht['OK'],       borderColor: '#7ed321', backgroundColor: '#7ed32122', tension: 0.3, fill: false, spanGaps: true, pointRadius: pr },
+                    { label: 'Warning',  data: ht['Warning'],  borderColor: '#f5a623', backgroundColor: '#f5a62322', tension: 0.3, fill: false, spanGaps: true, pointRadius: pr },
+                    { label: 'Critical', data: ht['Critical'], borderColor: '#e74c3c', backgroundColor: '#e74c3c22', tension: 0.3, fill: false, spanGaps: true, pointRadius: pr },
                 ],
             },
-            options: lineOpts('Health', ' servers'),
+            options: opts,
         });
     }
 
-    // ── Camera trend line (stacked area) ──
+    // ── Camera trend area ──
     var camTrendEl = document.getElementById('chartCamTrend');
     if (camTrendEl) {
+        var opts2 = baseOpts();
+        opts2.plugins.tooltip = {
+            callbacks: {
+                label: function (ctx) {
+                    return ctx.dataset.label + ': ' + ctx.parsed.y + ' kamera';
+                },
+            },
+        };
         new Chart(camTrendEl, {
             type: 'line',
             data: {
                 labels: labels,
                 datasets: [
-                    {
-                        label: 'Active',
-                        data: RAW.cameras.active,
-                        borderColor: '#7ed321',
-                        backgroundColor: '#7ed32122',
-                        tension: 0.3,
-                        fill: true,
-                        spanGaps: true,
-                        pointRadius: labels.length > 14 ? 2 : 4,
-                    },
-                    {
-                        label: 'Inactive',
-                        data: RAW.cameras.inactive,
-                        borderColor: '#e74c3c',
-                        backgroundColor: '#e74c3c22',
-                        tension: 0.3,
-                        fill: true,
-                        spanGaps: true,
-                        pointRadius: labels.length > 14 ? 2 : 4,
-                    },
+                    { label: 'Active',   data: RAW.cameras.active,   borderColor: '#7ed321', backgroundColor: '#7ed32122', tension: 0.3, fill: true, spanGaps: true, pointRadius: pr },
+                    { label: 'Inactive', data: RAW.cameras.inactive, borderColor: '#e74c3c', backgroundColor: '#e74c3c22', tension: 0.3, fill: true, spanGaps: true, pointRadius: pr },
                 ],
             },
-            options: lineOpts('Cameras', ''),
-        });
-    }
-
-    // ── HDD Total line ──
-    var hddTotalEl = document.getElementById('chartHddTotal');
-    if (hddTotalEl && serverNames.length) {
-        new Chart(hddTotalEl, {
-            type: 'line',
-            data: { labels: labels, datasets: makeLineDatasets('hdd_total') },
-            options: lineOpts('HDD', ' drives'),
+            options: opts2,
         });
     }
 

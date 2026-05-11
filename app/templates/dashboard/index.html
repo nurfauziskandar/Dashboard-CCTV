@@ -93,23 +93,8 @@
 </div>
 
 <div class="row g-3">
-    <!-- Map -->
-    <div class="col-lg-8">
-        <div class="card">
-            <div class="card-header d-flex align-items-center justify-content-between">
-                <span><i class="fa-solid fa-map-location-dot me-2"></i>Camera Locations</span>
-                <span class="badge bg-secondary">{{ cameras|length }} devices</span>
-            </div>
-            <div class="card-body p-0">
-                <div class="map-container">
-                    <div id="dashboardMap" style="height: 400px;"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Server Status -->
-    <div class="col-lg-4">
+    <div class="col-12">
         <div class="card h-100">
             <div class="card-header d-flex align-items-center">
                 <span><i class="fa-solid fa-server me-2"></i>Server Status</span>
@@ -216,35 +201,6 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    var mapCenter = {{ config.DEFAULT_MAP_CENTER | tojson }};
-    var mapZoom = {{ config.DEFAULT_MAP_ZOOM }};
-    var cameras = {{ cameras_json | safe }};
-
-    var map = L.map('dashboardMap').setView(mapCenter, mapZoom);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap',
-        maxZoom: 19
-    }).addTo(map);
-
-    cameras.forEach(function (cam) {
-        if (cam.latitude && cam.longitude) {
-            var color = cam.is_active ? '#2ecc71' : '#e74c3c';
-            var icon = L.divIcon({
-                html: '<i class="fa-solid fa-video" style="color:' + color + '; font-size: 18px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));"></i>',
-                className: 'camera-marker',
-                iconSize: [24, 24],
-                iconAnchor: [12, 12]
-            });
-            L.marker([cam.latitude, cam.longitude], { icon: icon })
-                .addTo(map)
-                .bindPopup(
-                    '<strong>' + cam.name + '</strong><br>' +
-                    '<span style="font-size:12px;">' + cam.ip_address + '</span><br>' +
-                    '<span style="font-size:12px;">' + (cam.location_name || '') + '</span>'
-                );
-        }
-    });
-
     // ----- Charts (Chart.js) -----
     var textColor = getComputedStyle(document.documentElement)
         .getPropertyValue('--text-primary').trim() || '#fff';
