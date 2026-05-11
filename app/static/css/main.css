@@ -95,7 +95,6 @@ a:hover {
     left: 0;
     bottom: 0;
     z-index: 1040;
-    overflow: hidden;
     transition: transform var(--transition-speed) ease, width var(--transition-speed) ease;
 }
 
@@ -196,17 +195,33 @@ a:hover {
 
 /* ===== Sidebar Collapse (desktop) ===== */
 .sidebar-collapse-btn {
+    position: absolute;
+    right: -13px;
+    top: 22px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
     color: var(--text-secondary);
-    font-size: 0.85rem;
-    padding: 4px 6px;
-    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1050;
+    padding: 0;
+    box-shadow: var(--shadow-sm);
+    transition: background var(--transition-speed), color var(--transition-speed), border-color var(--transition-speed);
 }
 
 .sidebar-collapse-btn:hover {
-    color: var(--text-primary);
+    background: var(--bg-card-hover);
+    color: var(--accent);
+    border-color: var(--accent);
 }
 
 .sidebar-collapse-btn i {
+    font-size: 0.65rem;
     transition: transform var(--transition-speed) ease;
 }
 
@@ -218,10 +233,11 @@ a:hover {
     .sidebar.collapsed .brand-text,
     .sidebar.collapsed .nav-link span {
         opacity: 0;
-        width: 0;
+        max-width: 0;
         overflow: hidden;
         white-space: nowrap;
         pointer-events: none;
+        transition: opacity var(--transition-speed), max-width var(--transition-speed);
     }
 
     .sidebar.collapsed .sidebar-brand {
