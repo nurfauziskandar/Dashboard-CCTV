@@ -192,20 +192,18 @@
                 <thead>
                     <tr>
                         <th>Device</th>
-                        <th>Model</th>
                         <th>Type</th>
                         <th>Capacity</th>
                         <th>Usage</th>
                         <th>Health</th>
+                        <th>Temp</th>
                         <th>Power On</th>
-                        <th>Bad Sectors</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for hdd in server.hdds %}
                     <tr>
                         <td class="fw-semibold">{{ hdd.device_name }}</td>
-                        <td style="color: var(--text-secondary); font-size: 0.8rem;">{{ hdd.model or '--' }}</td>
                         <td style="color: var(--text-muted); font-size: 0.8rem;">
                             {{ hdd.media_type or '' }} {{ hdd.protocol or '' }}
                         </td>
@@ -242,15 +240,16 @@
                             <span style="color: var(--text-muted); font-size: 0.8rem;">{{ hdd.health_status }}</span>
                             {% endif %}
                         </td>
+                        <td>
+                            {% if hdd.temperature_c is not none and hdd.temperature_c %}
+                            <span class="temp-display {{ 'critical' if hdd.temperature_c > 55 else ('warning' if hdd.temperature_c > 45 else 'normal') }}"
+                                  style="font-size: 0.85rem;">
+                                <i class="fa-solid fa-temperature-half me-1"></i>{{ hdd.temperature_c|round(0)|int }}&deg;C
+                            </span>
+                            {% else %}<span style="color: var(--text-muted);">--</span>{% endif %}
+                        </td>
                         <td style="color: var(--text-secondary); font-size: 0.85rem;">
                             {% if hdd.power_on_hours %}{{ (hdd.power_on_hours / 24)|round(0)|int }}d{% else %}--{% endif %}
-                        </td>
-                        <td>
-                            {% if hdd.reallocated_sectors or hdd.pending_sectors %}
-                            <span style="color: var(--warning); font-size: 0.8rem;">R:{{ hdd.reallocated_sectors }} / P:{{ hdd.pending_sectors }}</span>
-                            {% else %}
-                            <span style="color: var(--text-muted); font-size: 0.8rem;">0</span>
-                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
