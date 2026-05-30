@@ -45,6 +45,13 @@ class CameraService:
         return db.session.get(Camera, camera_id)
 
     def create(self, data):
+        # Prevent duplicate by name — update existing instead of creating new
+        existing = Camera.query.filter(
+            db.func.lower(Camera.name) == data['name'].strip().lower()
+        ).first()
+        if existing:
+            return self.update(existing.id, data)
+
         camera = Camera(
             name=data['name'],
             ip_address=data.get('ip_address', ''),

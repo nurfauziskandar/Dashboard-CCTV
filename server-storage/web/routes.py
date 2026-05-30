@@ -69,8 +69,14 @@ def add_camera():
             except ValueError:
                 pass
 
+    from recorder.stream_recorder import slugify as _slugify
+    slug = _slugify(name)
+    is_update = any(c['slug'] == slug for c in rec_manager.get_camera_list())
     rec_manager.add_camera(name, rtsp_uri, metadata=metadata or None)
-    flash(f'Camera "{name}" added and recording started.', 'success')
+    if is_update:
+        flash(f'Camera "{name}" updated (same name already exists).', 'info')
+    else:
+        flash(f'Camera "{name}" added and recording started.', 'success')
     return redirect(url_for('web.index'))
 
 
