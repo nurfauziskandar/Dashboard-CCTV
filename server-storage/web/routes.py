@@ -30,6 +30,8 @@ def index():
 
     retention = rec_manager.get_retention_settings()
 
+    camera_meta = {c['slug']: c for c in rec_manager.get_camera_list()}
+
     return render_template('index.html',
                            config=config,
                            system=system,
@@ -40,6 +42,7 @@ def index():
                            memory=memory,
                            cpu_percent=cpu_percent,
                            recorders=recorders,
+                           camera_meta=camera_meta,
                            rec_info=rec_info,
                            retention=retention)
 
@@ -77,6 +80,52 @@ def add_camera():
         flash(f'Camera "{name}" updated (same name already exists).', 'info')
     else:
         flash(f'Camera "{name}" added and recording started.', 'success')
+    return redirect(url_for('web.index'))
+
+
+@bp.route('/cameras/<slug>/edit', methods=['POST'])
+@login_required
+def edit_camera(slug):
+    rec_manager = current_app.config['rec_manager']
+    cams = {c['slug']: c for c in rec_manager.get_camera_list()}
+    if slug not in cams:
+        flash('Camera not found.', 'danger')
+        return redirect(url_for('web.index'))
+
+    name = request.form.get('name', '').strip()
+    rtsp_uri = request.form.get('rtsp_uri', '').strip()
+    if not name or not rtsp_uri:
+        flash('Name and RTSP URI required.', 'danger')
+        return redirect(url_for('web.index'))
+
+    metadata = {}
+    for fld in ('ip_address', 'manufacturer', 'model', 'location_name',
+                'onvif_username', 'onvif_password'):
+        v = (request.form.get(fld) or '').strip()
+        if v:
+            metadata[fld] = v
+    for fld, cast in (('port', int), ('latitude', float), ('longitude', float)):
+        raw = (request.form.get(fld) or '').strip()
+        if raw:
+            try:
+                metadata[fld] = cast(raw)
+            except ValueError:
+                pass
+
+    from recorder.stream_recorder import slugify as _slugify
+    new_slug = _slugify(name)
+
+    if new_slug != slug:
+        # Name changed — stop old recorder, rename recordings folder, start new
+        rec_manager.remove_camera(slug)
+        config = current_app.config['APP_CONFIG']
+        old_dir = os.path.join(config.RECORDINGS_DIR, slug)
+        new_dir = os.path.join(config.RECORDINGS_DIR, new_slug)
+        if os.path.isdir(old_dir) and not os.path.exists(new_dir):
+            os.rename(old_dir, new_dir)
+
+    rec_manager.add_camera(name, rtsp_uri, metadata=metadata or None)
+    flash(f'Camera "{name}" updated.', 'success')
     return redirect(url_for('web.index'))
 
 

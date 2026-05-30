@@ -135,6 +135,22 @@
                                 </td>
                                 <td>{{ '{:,}'.format(rec.frames_written) }}</td>
                                 <td>
+                                    {% set meta = camera_meta.get(slug, {}) %}
+                                    <button type="button" class="btn btn-sm me-1"
+                                            style="color: var(--accent); padding: 2px 8px;"
+                                            data-bs-toggle="modal" data-bs-target="#editCameraModal"
+                                            data-slug="{{ slug }}"
+                                            data-name="{{ rec.name }}"
+                                            data-rtsp="{{ rec.rtsp_uri }}"
+                                            data-ip="{{ meta.get('ip_address', '') }}"
+                                            data-port="{{ meta.get('port', 554) }}"
+                                            data-manufacturer="{{ meta.get('manufacturer', '') }}"
+                                            data-model="{{ meta.get('model', '') }}"
+                                            data-location="{{ meta.get('location_name', '') }}"
+                                            data-onvif-user="{{ meta.get('onvif_username', '') }}"
+                                            data-onvif-pass="{{ meta.get('onvif_password', '') }}">
+                                        <i class="fa-solid fa-pen"></i>
+                                    </button>
                                     <form method="POST" action="{{ url_for('web.remove_camera', slug=slug) }}"
                                           onsubmit="return confirm('Remove camera {{ rec.name }}?');"
                                           class="d-inline">
@@ -411,6 +427,76 @@
         </div>
     </div>
 </div>
+<!-- Edit Camera Modal -->
+<div class="modal fade" id="editCameraModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="background: var(--bg-card); border-color: var(--border-color);">
+            <form method="POST" id="editCameraForm" action="">
+                <div class="modal-header" style="border-color: var(--border-color);">
+                    <h5 class="modal-title" style="font-size: 1rem;">
+                        <i class="fa-solid fa-pen me-2"></i>Edit Camera
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Camera Name <span style="color:var(--danger);">*</span></label>
+                            <input type="text" class="form-control" name="name" id="ecmName" required>
+                            <div class="form-text" style="font-size: 0.72rem;">Mengubah nama akan mengubah slug dan me-restart recorder.</div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">RTSP URI <span style="color:var(--danger);">*</span></label>
+                            <input type="text" class="form-control" name="rtsp_uri" id="ecmRtsp" required>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">IP Address</label>
+                            <input type="text" class="form-control" name="ip_address" id="ecmIp">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Port</label>
+                            <input type="number" class="form-control" name="port" id="ecmPort" value="554">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Manufacturer</label>
+                            <select class="form-select" name="manufacturer" id="ecmManufacturer">
+                                <option value="Pelco">Pelco</option>
+                                <option value="Hikvision">Hikvision</option>
+                                <option value="Dahua">Dahua</option>
+                                <option value="Axis">Axis</option>
+                                <option value="EZVIZ">EZVIZ</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Model</label>
+                            <input type="text" class="form-control" name="model" id="ecmModel">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Location Name</label>
+                            <input type="text" class="form-control" name="location_name" id="ecmLocation">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">ONVIF Username</label>
+                            <input type="text" class="form-control" name="onvif_username" id="ecmOnvifUser">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">ONVIF Password</label>
+                            <input type="password" class="form-control" name="onvif_password" id="ecmOnvifPass">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-color: var(--border-color);">
+                    <button type="button" class="btn btn-sm" data-bs-dismiss="modal" style="color: var(--text-secondary);">Cancel</button>
+                    <button type="submit" class="btn btn-accent btn-sm">
+                        <i class="fa-solid fa-floppy-disk me-1"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Settings Modal -->
 <div class="modal fade" id="settingsModal" tabindex="-1">
     <div class="modal-dialog">
@@ -648,6 +734,38 @@ setInterval(function() {
             }
         });
     }
+})();
+
+// ----- Edit Camera modal: populate from data-* attributes -----
+(function () {
+    var editModal = document.getElementById('editCameraModal');
+    if (!editModal) return;
+
+    editModal.addEventListener('show.bs.modal', function (event) {
+        var btn = event.relatedTarget;
+        if (!btn) return;
+
+        var slug = btn.getAttribute('data-slug') || '';
+        document.getElementById('editCameraForm').action = '/cameras/' + slug + '/edit';
+        document.getElementById('ecmName').value        = btn.getAttribute('data-name') || '';
+        document.getElementById('ecmRtsp').value        = btn.getAttribute('data-rtsp') || '';
+        document.getElementById('ecmIp').value          = btn.getAttribute('data-ip') || '';
+        document.getElementById('ecmPort').value        = btn.getAttribute('data-port') || '554';
+        document.getElementById('ecmModel').value       = btn.getAttribute('data-model') || '';
+        document.getElementById('ecmLocation').value    = btn.getAttribute('data-location') || '';
+        document.getElementById('ecmOnvifUser').value   = btn.getAttribute('data-onvif-user') || '';
+        document.getElementById('ecmOnvifPass').value   = btn.getAttribute('data-onvif-pass') || '';
+
+        var mfr = btn.getAttribute('data-manufacturer') || '';
+        var sel = document.getElementById('ecmManufacturer');
+        if (sel) {
+            var found = false;
+            for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === mfr) { sel.selectedIndex = i; found = true; break; }
+            }
+            if (!found) sel.selectedIndex = sel.options.length - 1; // Other
+        }
+    });
 })();
 </script>
 {% endblock %}
