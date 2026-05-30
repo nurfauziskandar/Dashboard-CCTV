@@ -250,19 +250,22 @@ def create_app(config_name=None):
 
             for days_ago in range(days, -1, -1):
                 d = today - timedelta(days=days_ago)
+                date_changed = False
 
-                # Skip if aggregate row already exists for this date
-                if StatusSnapshot.query.filter_by(snapshot_date=d, server_id=None).first():
-                    continue
+                # Aggregate row (camera totals) — create only if missing
+                existing_agg = StatusSnapshot.query.filter_by(snapshot_date=d, server_id=None).first()
+                if existing_agg is None:
+                    cam_active = random.randint(max(0, int(cam_total * 0.75)), cam_total)
+                    agg = StatusSnapshot(snapshot_date=d, server_id=None)
+                    agg.cam_total = cam_total
+                    agg.cam_active = cam_active
+                    agg.cam_inactive = cam_total - cam_active
+                    db.session.add(agg)
+                    date_changed = True
+                else:
+                    cam_active = existing_agg.cam_active or cam_total
 
-                # Camera aggregate
-                cam_active = random.randint(max(0, int(cam_total * 0.75)), cam_total)
-                agg = StatusSnapshot(snapshot_date=d, server_id=None)
-                agg.cam_total = cam_total
-                agg.cam_active = cam_active
-                agg.cam_inactive = cam_total - cam_active
-                db.session.add(agg)
-
+                # Per-server rows — always attempt so newly added servers get backfilled
                 for srv in all_servers:
                     if StatusSnapshot.query.filter_by(snapshot_date=d, server_id=srv.id).first():
                         continue
@@ -287,9 +290,11 @@ def create_app(config_name=None):
                     row.cam_active = cam_active
                     row.cam_inactive = cam_total - cam_active
                     db.session.add(row)
+                    date_changed = True
 
-                db.session.commit()
-                snap_inserted += 1
+                if date_changed:
+                    db.session.commit()
+                    snap_inserted += 1
 
             click.echo(f'Snapshots: backfilled {snap_inserted} day(s) ({days} days range).')
 
