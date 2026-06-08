@@ -1572,13 +1572,15 @@ python -c "from wsdiscovery.discovery import ThreadedWSDiscovery; print('OK')"
 
 ## Struktur Database
 
+Database dashboard disimpan di `instance/dashboard.db` (SQLite, auto-dibuat saat pertama kali run). Terdiri dari 5 tabel: `camera`, `server`, `hdd`, `psu`, dan `status_snapshot`.
+
 ### Entity Relationship Diagram
 
 ```mermaid
 erDiagram
     server ||--o{ hdd : "has"
     server ||--o{ psu : "has"
-    server ||--o{ status_snapshot : "archived_as"
+    server |o--o{ status_snapshot : "archived_as (nullable)"
 
     camera {
         int id PK
@@ -1597,6 +1599,8 @@ erDiagram
         string snapshot_uri
         boolean is_active
         datetime last_seen
+        datetime created_at
+        datetime updated_at
     }
 
     server {
@@ -1606,6 +1610,7 @@ erDiagram
         string description
         string server_type
         string idrac_ip
+        int idrac_port
         string idrac_username
         string idrac_password
         string snmp_community
@@ -1619,6 +1624,7 @@ erDiagram
         float memory_usage
         boolean is_online
         datetime last_checked
+        datetime created_at
     }
 
     hdd {
@@ -1640,6 +1646,7 @@ erDiagram
         int reallocated_sectors
         int pending_sectors
         datetime last_checked
+        datetime created_at
     }
 
     psu {
@@ -1656,7 +1663,7 @@ erDiagram
     status_snapshot {
         int id PK
         date snapshot_date
-        int server_id FK
+        int server_id FK "nullable"
         string server_name
         boolean is_online
         string health_rollup
@@ -1668,89 +1675,131 @@ erDiagram
         int cam_total
         int cam_active
         int cam_inactive
+        datetime created_at
     }
 ```
 
 ### Tabel `camera`
 
+Menyimpan data kamera CCTV — baik yang ditambah manual maupun hasil ONVIF probe.
+
 | Kolom | Tipe | Keterangan |
 |-------|------|------------|
 | id | INTEGER PK | Auto increment |
-| name | VARCHAR(120) | Nama kamera |
-| ip_address | VARCHAR(45) | IP kamera (unique) |
-| port | INTEGER | Port ONVIF (default: 80) |
+| name | VARCHAR(120) NOT NULL | Nama kamera |
+| ip_address | VARCHAR(45) NOT NULL UNIQUE | IP kamera |
+| port | INTEGER NOT NULL | Port ONVIF (default: 80) |
 | onvif_username | VARCHAR(80) | Username ONVIF |
-| onvif_password | VARCHAR(255) | Password ONVIF |
-| manufacturer | VARCHAR(80) | Pabrikan (default: Pelco) |
-| model | VARCHAR(80) | Model kamera |
-| firmware | VARCHAR(80) | Versi firmware |
-| location_name | VARCHAR(200) | Nama lokasi |
-| latitude | FLOAT | Koordinat latitude |
-| longitude | FLOAT | Koordinat longitude |
-| stream_uri | VARCHAR(500) | RTSP stream URL (auto dari ONVIF) |
-| snapshot_uri | VARCHAR(500) | JPEG snapshot URL (auto dari ONVIF) |
-| is_active | BOOLEAN | Status aktif/non-aktif |
-| last_seen | DATETIME | Terakhir kali kamera merespon |
+| onvif_password | VARCHAR(255) | Password ONVIF (terenkripsi jika FERNET_KEY di-set) |
+| manufacturer | VARCHAR(80) | Pabrikan (default: `Pelco`) |
+| model | VARCHAR(80) | Model kamera (diisi dari ONVIF probe) |
+| firmware | VARCHAR(80) | Versi firmware (diisi dari ONVIF probe) |
+| location_name | VARCHAR(200) | Nama lokasi fisik kamera |
+| latitude | FLOAT | Koordinat latitude (untuk peta Leaflet) |
+| longitude | FLOAT | Koordinat longitude (untuk peta Leaflet) |
+| stream_uri | VARCHAR(500) | RTSP stream URL (auto dari ONVIF `GetStreamUri`) |
+| snapshot_uri | VARCHAR(500) | JPEG snapshot URL (auto dari ONVIF `GetSnapshotUri`) |
+| is_active | BOOLEAN NOT NULL | Status aktif/non-aktif (diperbarui setiap polling) |
+| last_seen | DATETIME | Terakhir kali kamera merespon ONVIF probe |
+| created_at | DATETIME NOT NULL | Waktu kamera ditambahkan (UTC) |
+| updated_at | DATETIME NOT NULL | Waktu record terakhir diperbarui (UTC, auto on update) |
 
 ### Tabel `server`
 
+Menyimpan konfigurasi dan metrik real-time server storage (VX Storage via iDRAC atau Endura via SNMP).
+
 | Kolom | Tipe | Keterangan |
 |-------|------|------------|
 | id | INTEGER PK | Auto increment |
-| name | VARCHAR(120) | Nama server |
-| ip_address | VARCHAR(45) | IP server (unique) |
-| description | TEXT | Deskripsi |
-| server_type | VARCHAR(30) | Tipe: `vxstorage`, `endura`, `other` |
-| idrac_ip | VARCHAR(45) | IP iDRAC (khusus VxStorage) |
-| idrac_username | VARCHAR(80) | Username iDRAC |
-| idrac_password | VARCHAR(255) | Password iDRAC |
-| snmp_community | VARCHAR(80) | SNMP community string (default: public) |
-| system_model | VARCHAR(120) | Model sistem (dari iDRAC/SNMP) |
+| name | VARCHAR(120) NOT NULL | Nama server |
+| ip_address | VARCHAR(45) NOT NULL UNIQUE | IP utama server |
+| description | TEXT | Deskripsi bebas |
+| server_type | VARCHAR(30) | Tipe: `vxstorage`, `endura`, `other` (default: `vxstorage`) |
+| idrac_ip | VARCHAR(45) | IP iDRAC (khusus VxStorage, bisa beda subnet) |
+| idrac_port | INTEGER | Port iDRAC (default: 443) |
+| idrac_username | VARCHAR(80) | Username iDRAC (default: `root`) |
+| idrac_password | VARCHAR(255) | Password iDRAC (default: `calvin`) |
+| snmp_community | VARCHAR(80) | SNMP community string (default: `public`, khusus Endura) |
+| system_model | VARCHAR(120) | Model sistem (dari Redfish atau SNMP sysDescr) |
 | serial_number | VARCHAR(80) | Serial number server |
-| power_state | VARCHAR(20) | Status power (On/Off) |
-| health_rollup | VARCHAR(20) | Health rollup: OK / Warning / Critical |
-| inlet_temp | FLOAT | Suhu inlet (Celcius, VxStorage) |
-| exhaust_temp | FLOAT | Suhu exhaust (Celcius, VxStorage) |
+| power_state | VARCHAR(20) | Status power: `On`, `Off` |
+| health_rollup | VARCHAR(20) | Health rollup: `OK`, `Warning`, `Critical` |
+| inlet_temp | FLOAT | Suhu inlet °C (VxStorage via Redfish `/Thermal`) |
+| exhaust_temp | FLOAT | Suhu exhaust °C (VxStorage via Redfish `/Thermal`) |
 | cpu_usage | FLOAT | Penggunaan CPU (%) |
 | memory_usage | FLOAT | Penggunaan memory (%) |
-| is_online | BOOLEAN | Status online |
-| last_checked | DATETIME | Terakhir kali di-poll |
+| is_online | BOOLEAN | Status online (False jika polling gagal) |
+| last_checked | DATETIME | Terakhir kali di-poll berhasil |
+| created_at | DATETIME NOT NULL | Waktu server ditambahkan (UTC) |
 
 ### Tabel `hdd`
 
+Satu baris per drive fisik per server. Di-upsert setiap polling (bukan append).
+
 | Kolom | Tipe | Keterangan |
 |-------|------|------------|
 | id | INTEGER PK | Auto increment |
-| server_id | INTEGER FK | Referensi ke server |
-| device_name | VARCHAR(50) | Nama device / drive ID |
-| slot | VARCHAR(20) | Slot fisik (misal: Disk.Bay.0:Enclosure.Internal.0-1) |
+| server_id | INTEGER FK NOT NULL | Referensi ke `server.id` (cascade delete) |
+| device_name | VARCHAR(80) NOT NULL | Nama device / drive ID (dari Redfish atau SNMP) |
+| slot | VARCHAR(20) | Slot fisik (contoh: `Disk.Bay.0:Enclosure.Internal.0-1`) |
 | model | VARCHAR(120) | Model HDD/SSD |
 | serial | VARCHAR(80) | Serial number |
-| media_type | VARCHAR(20) | Tipe media: HDD, SSD |
-| protocol | VARCHAR(20) | Protokol: SATA, SAS, NVMe |
-| capacity_gb | FLOAT | Kapasitas (GB) |
+| media_type | VARCHAR(20) | Tipe media: `HDD`, `SSD` |
+| protocol | VARCHAR(20) | Protokol: `SATA`, `SAS`, `NVMe` |
+| capacity_gb | FLOAT | Kapasitas total (GB) |
 | used_gb | FLOAT | Terpakai (GB) |
-| temperature_c | FLOAT | Suhu drive (Celcius) |
-| health_status | VARCHAR(20) | OK / Warning / Critical / Unknown |
-| state | VARCHAR(30) | Status operasional (Online, Offline, etc.) |
+| temperature_c | FLOAT | Suhu drive °C |
+| health_status | VARCHAR(20) | `OK`, `Warning`, `Critical`, `Unknown` (default: `Unknown`) |
+| state | VARCHAR(30) | Status operasional: `Enabled`, `StandbyOffline`, dll. |
 | predicted_life_left | INTEGER | Prediksi sisa umur (%, khusus SSD) |
-| power_on_hours | INTEGER | Total jam menyala |
-| reallocated_sectors | INTEGER | Sektor rusak yang dipindahkan |
-| pending_sectors | INTEGER | Sektor menunggu relokasi |
+| power_on_hours | INTEGER | Total jam menyala (power-on hours) |
+| reallocated_sectors | INTEGER | Sektor rusak yang dipindahkan (SMART, default: 0) |
+| pending_sectors | INTEGER | Sektor menunggu relokasi (SMART, default: 0) |
 | last_checked | DATETIME | Terakhir kali di-poll |
+| created_at | DATETIME NOT NULL | Waktu record pertama kali dibuat (UTC) |
 
 ### Tabel `psu`
 
+Satu baris per PSU per server. Di-upsert setiap polling (bukan append).
+
 | Kolom | Tipe | Keterangan |
 |-------|------|------------|
 | id | INTEGER PK | Auto increment |
-| server_id | INTEGER FK | Referensi ke server |
-| name | VARCHAR(80) | Nama PSU (misal: PS1 Status) |
+| server_id | INTEGER FK NOT NULL | Referensi ke `server.id` (cascade delete) |
+| name | VARCHAR(80) NOT NULL | Nama PSU (contoh: `PS1 Status`, dari Redfish) |
 | model | VARCHAR(120) | Model PSU |
-| health_status | VARCHAR(20) | OK / Warning / Critical / Unknown |
+| health_status | VARCHAR(20) | `OK`, `Warning`, `Critical`, `Unknown` (default: `Unknown`) |
 | power_watts | FLOAT | Daya terpakai saat ini (Watt) |
 | capacity_watts | FLOAT | Kapasitas maksimum (Watt) |
 | last_checked | DATETIME | Terakhir kali di-poll |
+
+### Tabel `status_snapshot`
+
+Snapshot harian yang ditulis APScheduler setiap tengah malam. Dipakai halaman `/summary` untuk grafik tren historis.
+
+Dua jenis baris:
+- **Per-server**: `server_id` diisi — berisi metrik server (suhu, health, HDD, CPU, memory) + totals kamera.
+- **Aggregate**: `server_id = NULL` — berisi hanya totals kamera (untuk bar chart kamera aktif/non-aktif di hari-hari tanpa server baru).
+
+Constraint unik: `(snapshot_date, server_id)` — satu baris per tanggal per server (atau NULL untuk aggregate).
+
+| Kolom | Tipe | Keterangan |
+|-------|------|------------|
+| id | INTEGER PK | Auto increment |
+| snapshot_date | DATE NOT NULL | Tanggal snapshot (index) |
+| server_id | INTEGER FK NULLABLE | Referensi ke `server.id` — NULL = baris aggregate kamera |
+| server_name | VARCHAR(120) | Nama server saat snapshot (denormalized, untuk histori) |
+| is_online | BOOLEAN | Status online server saat snapshot |
+| health_rollup | VARCHAR(20) | Health rollup: `OK`, `Warning`, `Critical` |
+| inlet_temp | FLOAT | Suhu inlet °C saat snapshot |
+| cpu_usage | FLOAT | CPU % saat snapshot |
+| memory_usage | FLOAT | Memory % saat snapshot |
+| hdd_total | INTEGER | Jumlah HDD terpasang saat snapshot |
+| hdd_alerts | INTEGER | Jumlah HDD dengan health `Warning` atau `Critical` |
+| cam_total | INTEGER | Total kamera saat snapshot |
+| cam_active | INTEGER | Kamera aktif saat snapshot |
+| cam_inactive | INTEGER | Kamera non-aktif saat snapshot |
+| created_at | DATETIME NOT NULL | Waktu baris dibuat (UTC) |
 
 ---
 
