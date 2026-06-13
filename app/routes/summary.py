@@ -101,6 +101,7 @@ def _build_chart_data(by_date, server_id_filter):
 @bp.route('/')
 def index():
     from app.models.server import Server as ServerModel
+    from app.models.camera import Camera
 
     snapshot_service = current_app.config['snapshot_service']
     today = date.today()
@@ -112,6 +113,13 @@ def index():
 
     server_id_filter = request.args.get('server_id', '').strip()
     all_servers = ServerModel.query.order_by(ServerModel.name).all()
+
+    inactive_cameras = (
+        Camera.query
+        .filter_by(is_active=False)
+        .order_by(Camera.name)
+        .all()
+    )
 
     by_date_raw = snapshot_service.query_range(date_from, date_to)
 
@@ -143,6 +151,7 @@ def index():
         all_servers=all_servers,
         server_id_filter=server_id_filter,
         chart_data_json=json.dumps(chart_data),
+        inactive_cameras=inactive_cameras,
         config=current_app.config,
     )
 

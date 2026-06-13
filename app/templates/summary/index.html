@@ -20,7 +20,8 @@
 
     /* Hide chrome */
     .sidebar, .topbar, .sidebar-overlay, #filterCard, #printBtn,
-    #logPager, #logSearch { display: none !important; }
+    #logPager, #logSearch, #inactiveCamTable th:last-child,
+    #inactiveCamTable td:last-child { display: none !important; }
 
     /* Layout reset */
     .app-wrapper  { display: block !important; }
@@ -110,6 +111,82 @@
         </div>
     </div>
 </div>
+
+{# ── Inactive Camera Alert ── #}
+{% if inactive_cameras %}
+<div class="card mb-3" id="inactiveCameraCard">
+    <div class="card-header d-flex align-items-center justify-content-between" style="background:rgba(231,76,60,0.12); border-bottom:1px solid rgba(231,76,60,0.25);">
+        <span style="color:var(--danger); font-weight:600;">
+            <i class="fa-solid fa-triangle-exclamation me-2"></i>
+            Kamera Tidak Aktif
+            <span class="badge ms-2" style="background:var(--danger); color:#fff;">{{ inactive_cameras|length }}</span>
+        </span>
+        <span style="font-size:0.75rem; color:var(--text-muted);">Terdeteksi saat ini — perlu tindak lanjut pelaporan</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0" style="font-size:0.82rem;" id="inactiveCamTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Nama Kamera</th>
+                    <th>IP Address</th>
+                    <th>Lokasi</th>
+                    <th>Jenis / Model</th>
+                    <th>Manufacturer</th>
+                    <th>Terakhir Aktif</th>
+                    <th style="white-space:nowrap;">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cam in inactive_cameras %}
+                <tr>
+                    <td style="color:var(--text-muted);">{{ loop.index }}</td>
+                    <td class="fw-semibold" style="color:var(--danger);">
+                        <i class="fa-solid fa-video-slash me-1" style="font-size:11px;"></i>
+                        {{ cam.name }}
+                    </td>
+                    <td>
+                        <code style="font-size:0.8rem; background:var(--bg-secondary); padding:2px 6px; border-radius:4px;">{{ cam.ip_address }}{% if cam.port and cam.port != 80 %}:{{ cam.port }}{% endif %}</code>
+                    </td>
+                    <td>
+                        {% if cam.location_name %}
+                        <i class="fa-solid fa-location-dot me-1" style="color:var(--text-muted); font-size:11px;"></i>{{ cam.location_name }}
+                        {% else %}
+                        <span style="color:var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if cam.model %}{{ cam.model }}{% else %}<span style="color:var(--text-muted);">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if cam.manufacturer %}{{ cam.manufacturer }}{% else %}<span style="color:var(--text-muted);">—</span>{% endif %}
+                    </td>
+                    <td style="color:var(--text-muted); white-space:nowrap;">
+                        {% if cam.last_seen %}
+                        {{ cam.last_seen.strftime('%d %b %Y %H:%M') }}
+                        {% else %}
+                        <span style="color:var(--danger);">Belum pernah aktif</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('cameras.detail', camera_id=cam.id) }}"
+                           class="btn btn-ghost btn-sm" style="font-size:0.75rem; padding:2px 8px;">
+                            <i class="fa-solid fa-arrow-up-right-from-square me-1"></i>Detail
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer d-flex align-items-center justify-content-between flex-wrap gap-2" style="font-size:0.75rem; color:var(--text-muted);">
+        <span><i class="fa-solid fa-circle-info me-1"></i>Data real-time dari database — bukan snapshot historis.</span>
+        <a href="{{ url_for('cameras.index', status='inactive') }}" class="btn btn-ghost btn-sm" style="font-size:0.75rem;">
+            <i class="fa-solid fa-list me-1"></i>Lihat semua di halaman Kamera
+        </a>
+    </div>
+</div>
+{% endif %}
 
 {# ── Charts Section ── #}
 {% if sorted_dates %}
