@@ -37,8 +37,15 @@
 
     /* Page breaks */
     .card           { page-break-inside: avoid; margin-bottom: 6mm !important; }
-    #chartsSection  { page-break-after: always; }
-    .row            { page-break-inside: avoid; }
+    /* Inactive cam & data log tables are long — allow natural page breaks */
+    #inactiveCameraCard,
+    .card:has(#logTable) { page-break-inside: auto; }
+    /* Repeat table headers on each printed page */
+    #inactiveCamTable thead,
+    #logTable thead   { display: table-header-group; }
+    /* Charts always start on a fresh page */
+    #chartsSection    { page-break-before: always; }
+    .row              { page-break-inside: avoid; }
 
     /* Charts */
     canvas { max-width: 100% !important; }
@@ -188,32 +195,6 @@
 </div>
 {% endif %}
 
-{# ── Charts Section ── #}
-{% if sorted_dates %}
-<div id="chartsSection">
-
-    <div class="row g-3 mb-3">
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><i class="fa-solid fa-heart-pulse me-2"></i>Server Health (OK / Warning / Critical)</div>
-                <div class="card-body" style="min-height:260px;">
-                    <canvas id="chartHealth"></canvas>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><i class="fa-solid fa-video me-2"></i>Camera Active Trend</div>
-                <div class="card-body" style="min-height:260px;">
-                    <canvas id="chartCamTrend"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-
-</div>{# /chartsSection #}
-{% endif %}
-
 {# ── Data Log (flat table, paginated) ── #}
 {% if not sorted_dates %}
 <div class="empty-state">
@@ -235,7 +216,7 @@
   {% endif %}
 {% endfor %}
 
-<div class="card">
+<div class="card mb-3">
     <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
         <span><i class="fa-solid fa-table me-2"></i>Data Log
             <span class="badge bg-secondary ms-2" id="logBadge">{{ flat_rows|length }} baris</span>
@@ -314,6 +295,31 @@
 </div>
 
 {% endif %}
+
+{# ── Charts Section — always after tables ── #}
+{% if sorted_dates %}
+<div id="chartsSection">
+    <div class="row g-3 mb-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-heart-pulse me-2"></i>Server Health (OK / Warning / Critical)</div>
+                <div class="card-body" style="min-height:260px;">
+                    <canvas id="chartHealth"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-video me-2"></i>Camera Active Trend</div>
+                <div class="card-body" style="min-height:260px;">
+                    <canvas id="chartCamTrend"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>{# /chartsSection #}
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
