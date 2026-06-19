@@ -43,8 +43,8 @@
     /* Repeat table headers on each printed page */
     #inactiveCamTable thead,
     #logTable thead   { display: table-header-group; }
-    /* Charts always start on a fresh page */
-    #chartsSection    { page-break-before: always; }
+    /* Charts on own page, then tables follow */
+    #chartsSection    { page-break-after: always; }
     .row              { page-break-inside: avoid; }
 
     /* Charts */
@@ -118,6 +118,30 @@
         </div>
     </div>
 </div>
+
+{# ── Charts Section — sebelum tabel ── #}
+{% if sorted_dates %}
+<div id="chartsSection">
+    <div class="row g-3 mb-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-heart-pulse me-2"></i>Server Health (OK / Warning / Critical)</div>
+                <div class="card-body" style="min-height:260px;">
+                    <canvas id="chartHealth"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="fa-solid fa-video me-2"></i>Camera Active Trend</div>
+                <div class="card-body" style="min-height:260px;">
+                    <canvas id="chartCamTrend"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>{# /chartsSection #}
+{% endif %}
 
 {# ── Inactive Camera Alert ── #}
 {% if inactive_cameras %}
@@ -296,30 +320,6 @@
 
 {% endif %}
 
-{# ── Charts Section — always after tables ── #}
-{% if sorted_dates %}
-<div id="chartsSection">
-    <div class="row g-3 mb-3">
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><i class="fa-solid fa-heart-pulse me-2"></i>Server Health (OK / Warning / Critical)</div>
-                <div class="card-body" style="min-height:260px;">
-                    <canvas id="chartHealth"></canvas>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card h-100">
-                <div class="card-header"><i class="fa-solid fa-video me-2"></i>Camera Active Trend</div>
-                <div class="card-body" style="min-height:260px;">
-                    <canvas id="chartCamTrend"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>{# /chartsSection #}
-{% endif %}
-
 {% endblock %}
 
 {% block scripts %}
@@ -414,7 +414,6 @@
     var textColor = isDark ? '#adb5bd' : '#6c757d';
 
     var labels = RAW.labels;
-    var pr = labels.length > 14 ? 2 : 4;
 
     function baseOpts() {
         return {
@@ -431,11 +430,13 @@
         };
     }
 
-    // ── Server Health line — tooltip shows which servers per status ──
+    // ── Server Health bar (stacked) — tooltip shows which servers per status ──
     var healthEl = document.getElementById('chartHealth');
     if (healthEl && RAW.health_ts) {
         var ht = RAW.health_ts;
         var opts = baseOpts();
+        opts.scales.x.stacked = true;
+        opts.scales.y.stacked = true;
         opts.plugins.tooltip = {
             callbacks: {
                 label: function (ctx) {
@@ -450,20 +451,20 @@
             },
         };
         new Chart(healthEl, {
-            type: 'line',
+            type: 'bar',
             data: {
                 labels: labels,
                 datasets: [
-                    { label: 'OK',       data: ht['OK'],       borderColor: '#7ed321', backgroundColor: '#7ed32122', tension: 0.3, fill: false, spanGaps: true, pointRadius: pr },
-                    { label: 'Warning',  data: ht['Warning'],  borderColor: '#f5a623', backgroundColor: '#f5a62322', tension: 0.3, fill: false, spanGaps: true, pointRadius: pr },
-                    { label: 'Critical', data: ht['Critical'], borderColor: '#e74c3c', backgroundColor: '#e74c3c22', tension: 0.3, fill: false, spanGaps: true, pointRadius: pr },
+                    { label: 'OK',       data: ht['OK'],       backgroundColor: '#7ed321cc', borderColor: '#7ed321', borderWidth: 1, borderRadius: 3 },
+                    { label: 'Warning',  data: ht['Warning'],  backgroundColor: '#f5a623cc', borderColor: '#f5a623', borderWidth: 1, borderRadius: 3 },
+                    { label: 'Critical', data: ht['Critical'], backgroundColor: '#e74c3ccc', borderColor: '#e74c3c', borderWidth: 1, borderRadius: 3 },
                 ],
             },
             options: opts,
         });
     }
 
-    // ── Camera trend area ──
+    // ── Camera trend bar (grouped) ──
     var camTrendEl = document.getElementById('chartCamTrend');
     if (camTrendEl) {
         var opts2 = baseOpts();
@@ -475,12 +476,12 @@
             },
         };
         new Chart(camTrendEl, {
-            type: 'line',
+            type: 'bar',
             data: {
                 labels: labels,
                 datasets: [
-                    { label: 'Active',   data: RAW.cameras.active,   borderColor: '#7ed321', backgroundColor: '#7ed32122', tension: 0.3, fill: true, spanGaps: true, pointRadius: pr },
-                    { label: 'Inactive', data: RAW.cameras.inactive, borderColor: '#e74c3c', backgroundColor: '#e74c3c22', tension: 0.3, fill: true, spanGaps: true, pointRadius: pr },
+                    { label: 'Active',   data: RAW.cameras.active,   backgroundColor: '#7ed321cc', borderColor: '#7ed321', borderWidth: 1, borderRadius: 3 },
+                    { label: 'Inactive', data: RAW.cameras.inactive, backgroundColor: '#e74c3ccc', borderColor: '#e74c3c', borderWidth: 1, borderRadius: 3 },
                 ],
             },
             options: opts2,

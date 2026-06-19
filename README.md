@@ -97,6 +97,47 @@ Lalu set `ADMIN_PASSWORD_HASH=<hash>` (override `ADMIN_PASSWORD`).
 
 ## Arsitektur Sistem
 
+### Gambaran Sistem
+
+```mermaid
+flowchart LR
+    Browser(["👤 Browser\nOperator"])
+
+    subgraph DASH["🖥️  Dashboard CCTV  ·  Port 5000"]
+        DB[("SQLite\n─────────\ncamera\nserver\nhdd · psu\nstatus_snapshot")]
+    end
+
+    subgraph STOR["💾  Server-Storage  ·  Port 8080"]
+        FILES[("File Storage\n─────────────\ncameras.json\nretention.json\nrecordings/ *.mp4")]
+    end
+
+    CAM["📷  Kamera CCTV"]
+    HW["⚙️  Server Hardware"]
+
+    Browser -- "monitoring & konfigurasi" --> DASH
+    Browser -- "playback rekaman" --> STOR
+
+    DASH -- "sinkronisasi daftar kamera\n(REST API)" --> STOR
+
+    DASH -- "ONVIF probe\nstatus polling" --> CAM
+    CAM -- "RTSP stream\n(live view)" --> DASH
+
+    CAM -- "RTSP stream\n(rekam → MP4)" --> STOR
+
+    DASH -- "Redfish / SNMP\npoll metrik" --> HW
+```
+
+**Penyimpanan data:**
+
+| Komponen | Simpan apa | Format |
+|----------|-----------|--------|
+| **Dashboard** | Konfigurasi kamera & server, metrik hardware (suhu, HDD, PSU), log harian Summary Report | SQLite `dashboard.db` |
+| **Server-Storage** | Daftar kamera aktif, setting retensi, file video rekaman | JSON + MP4 |
+| **Server Hardware** | *(tidak simpan data — hanya sumber metrik via Redfish/SNMP)* | — |
+| **Kamera CCTV** | *(tidak simpan data — sumber stream video)* | — |
+
+### Arsitektur Detail (Teknis)
+
 ```mermaid
 graph TD
     Browser["Browser\nBootstrap 5.3 + Leaflet.js + FontAwesome 6.5"]
@@ -124,22 +165,21 @@ graph TD
         end
 
         subgraph Data["Data Layer"]
-            Models["SQLAlchemy Models\nCamera · Server · HDD · PSU"]
+            Models["SQLAlchemy Models\nCamera · Server · HDD · PSU · StatusSnapshot"]
         end
 
-        Scheduler["APScheduler\npoll_cameras (60s) · poll_servers (120s)"]
+        Scheduler["APScheduler\npoll_cameras (60s) · poll_servers (120s)\ndaily_snapshot (00:00) · sync_storage (60s)"]
     end
 
     DB[("SQLite\ninstance/dashboard.db")]
 
     subgraph Pelco["Perangkat Pelco"]
         CAM["Kamera Pelco\nSarix · Spectra · Optera"]
-        VXS["VX Storage E-Series\nDell PowerEdge R740xd\niDRAC 9 built-in"]
-        VXS_IDRAC["iDRAC 9 BMC\nManagement Controller"]
+        VXS_IDRAC["iDRAC 9 BMC\nVX Storage E-Series"]
         NSM["Endura NSM5200\nNetwork Storage Manager"]
     end
 
-    Browser -->|"HTTP/HTTPS\nPort 5000 (dev) · 80/443 (prod)"| Routing
+    Browser -->|"HTTP/HTTPS\nPort 5000"| Routing
 
     R1 & R2 --> CS
     R1 & R3 --> SS
@@ -154,41 +194,12 @@ graph TD
     Models --> DB
     Scheduler --> CS & SS
 
-    ONVIF -->|"ONVIF/SOAP · HTTP\nTCP Port 80"| CAM
-    ONVIF -->|"RTSP\nTCP Port 554"| CAM
-    WSD -->|"WS-Discovery\nUDP Port 3702\nMulticast 239.255.255.250"| CAM
+    ONVIF -->|"ONVIF/SOAP · TCP 80"| CAM
+    ONVIF -->|"RTSP · TCP 554"| CAM
+    WSD -->|"WS-Discovery · UDP 3702"| CAM
 
-    VXS --- VXS_IDRAC
-    IDRAC -->|"Redfish REST API\nHTTPS Port 443\nJSON over TLS"| VXS_IDRAC
-    SNMP -->|"SNMP v2c/v3\nUDP Port 161"| NSM
-```
-
-### Alur Data
-
-```mermaid
-flowchart LR
-    subgraph Input["Sumber Data"]
-        A["ONVIF GetDeviceInformation\nModel · Firmware · Serial"]
-        B["ONVIF GetStreamUri\nRTSP URL"]
-        C["ONVIF GetSnapshotUri\nJPEG URL"]
-        D["Redfish /Systems\nModel · Serial · Power · Health"]
-        E["Redfish /Thermal\nInlet · Exhaust Temp"]
-        F["Redfish /Storage/Drives\nDisk Health · Capacity · Temp"]
-        G["Redfish /Power\nPSU Health · Watt"]
-        H["SNMP hrStorageTable\nDisk Usage"]
-    end
-
-    subgraph Output["Database Tables"]
-        T1[("camera")]
-        T2[("server")]
-        T3[("hdd")]
-        T4[("psu")]
-    end
-
-    A & B & C --> T1
-    D & E --> T2
-    F & H --> T3
-    G --> T4
+    IDRAC -->|"Redfish REST · HTTPS 443"| VXS_IDRAC
+    SNMP -->|"SNMP v2c/v3 · UDP 161"| NSM
 ```
 
 ---
