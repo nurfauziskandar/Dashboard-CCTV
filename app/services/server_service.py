@@ -39,6 +39,9 @@ class ServerService:
             idrac_username=data.get('idrac_username'),
             idrac_password=data.get('idrac_password'),
             snmp_community=data.get('snmp_community', 'public'),
+            vms_port=int(data['vms_port']) if data.get('vms_port') else 8116,
+            vms_username=data.get('vms_username'),
+            vms_password=data.get('vms_password'),
         )
         db.session.add(server)
         db.session.commit()
@@ -61,6 +64,12 @@ class ServerService:
         if data.get('idrac_password'):
             server.idrac_password = data['idrac_password']
         server.snmp_community = data.get('snmp_community', server.snmp_community)
+        if data.get('vms_port'):
+            server.vms_port = int(data['vms_port'])
+        if data.get('vms_username'):
+            server.vms_username = data['vms_username']
+        if data.get('vms_password'):
+            server.vms_password = data['vms_password']
         db.session.commit()
         return server
 
@@ -81,7 +90,32 @@ class ServerService:
         self._refresh_server(server)
         return server
 
+    def _refresh_vms_server(self, server):
+        from app.services.axxon_adapter import AxxonNextAdapter
+        adapter = AxxonNextAdapter()
+        port = server.vms_port or 8116
+        result = adapter.test_connection(
+            server.ip_address, port, server.vms_username, server.vms_password
+        )
+        server.is_online = result['ok']
+        server.last_checked = datetime.now(timezone.utc)
+        if result['ok']:
+            cameras = adapter.list_cameras(
+                server.ip_address, port, server.vms_username, server.vms_password
+            )
+            server.vms_cameras_total = len(cameras)
+            server.vms_cameras_active = sum(1 for c in cameras if c.get('is_active'))
+            server.health_rollup = 'OK'
+            server.power_state = 'On'
+        else:
+            server.health_rollup = 'Critical'
+            server.power_state = None
+        db.session.commit()
+
     def _refresh_server(self, server):
+        if server.server_type == 'axxon':
+            self._refresh_vms_server(server)
+            return
         log.debug('_refresh_server: id=%d ip=%s type=%s', server.id, server.ip_address, server.server_type)
         health = self.monitor.get_server_health(server)
         log.debug('_refresh_server: health result is_online=%s health_rollup=%s',

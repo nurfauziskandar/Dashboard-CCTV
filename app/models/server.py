@@ -24,6 +24,14 @@ class Server(db.Model):
     # SNMP connection (for Endura)
     snmp_community = db.Column(db.String(80), default='public')
 
+    # VMS connection (for Axxon Next)
+    vms_port = db.Column(db.Integer, default=8116)
+    vms_username = db.Column(db.String(80))
+    vms_password = db.Column(db.String(255))
+    vms_cameras_total = db.Column(db.Integer, default=0)
+    vms_cameras_active = db.Column(db.Integer, default=0)
+    vms_version = db.Column(db.String(80))
+
     # System metrics
     inlet_temp = db.Column(db.Float)
     exhaust_temp = db.Column(db.Float)
@@ -58,6 +66,9 @@ class Server(db.Model):
             'last_checked': self.last_checked.isoformat() if self.last_checked else None,
             'hdds': [h.to_dict() for h in self.hdds],
             'psus': [p.to_dict() for p in self.psus],
+            'vms_cameras_total': self.vms_cameras_total,
+            'vms_cameras_active': self.vms_cameras_active,
+            'vms_version': self.vms_version,
         }
 
     @property
@@ -85,9 +96,14 @@ class Server(db.Model):
         labels = {
             'vxstorage': 'Pelco VX Storage',
             'endura': 'Pelco Endura',
+            'axxon': 'Axxon Next VMS',
             'other': 'Other',
         }
         return labels.get(self.server_type, self.server_type)
+
+    @property
+    def is_vms(self):
+        return self.server_type == 'axxon'
 
 
 class HDD(db.Model):

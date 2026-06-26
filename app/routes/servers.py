@@ -23,6 +23,9 @@ def add():
         'idrac_username': request.form.get('idrac_username'),
         'idrac_password': request.form.get('idrac_password'),
         'snmp_community': request.form.get('snmp_community', 'public'),
+        'vms_port': request.form.get('vms_port', '8116'),
+        'vms_username': request.form.get('vms_username'),
+        'vms_password': request.form.get('vms_password'),
     }
     try:
         server_service.create(data)
@@ -61,6 +64,9 @@ def edit(server_id):
             'idrac_username': request.form.get('idrac_username'),
             'idrac_password': request.form.get('idrac_password'),
             'snmp_community': request.form.get('snmp_community', 'public'),
+            'vms_port': request.form.get('vms_port'),
+            'vms_username': request.form.get('vms_username'),
+            'vms_password': request.form.get('vms_password'),
         }
         try:
             server_service.update(server_id, data)
@@ -96,3 +102,18 @@ def api_refresh(server_id):
     if server:
         return jsonify(server.to_dict())
     return jsonify({'error': 'Server not found'}), 404
+
+
+@bp.route('/api/<int:server_id>/vms_cameras')
+def api_vms_cameras(server_id):
+    """Return live camera list from an Axxon Next VMS server."""
+    server_service = current_app.config['server_service']
+    server = server_service.get_by_id(server_id)
+    if not server or not server.is_vms:
+        return jsonify({'error': 'VMS server not found'}), 404
+    from app.services.axxon_adapter import AxxonNextAdapter
+    cameras = AxxonNextAdapter().list_cameras(
+        server.ip_address, server.vms_port or 8116,
+        server.vms_username, server.vms_password
+    )
+    return jsonify({'cameras': cameras})

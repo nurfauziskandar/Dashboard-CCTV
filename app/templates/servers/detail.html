@@ -119,8 +119,28 @@
     </div>
 </div>
 
+<!-- VMS Camera List (Axxon Next) -->
+{% if server.is_vms %}
+<div class="card mb-4">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="fa-solid fa-video me-2"></i>Kamera Axxon Next</span>
+        <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-secondary" id="vmsCamCount">{{ server.vms_cameras_active }}/{{ server.vms_cameras_total }}</span>
+            <button class="btn btn-ghost btn-sm" id="btnLoadCameras">
+                <i class="fa-solid fa-rotate me-1"></i> Load Kamera
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0" id="vmsCameraBody">
+        <div class="p-4 text-center" style="color: var(--text-muted); font-size: 0.85rem;">
+            Klik <b>Load Kamera</b> untuk melihat daftar kamera dari VMS.
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Power Supplies -->
-{% if server.psus %}
+{% if server.psus and not server.is_vms %}
 <div class="card mb-4">
     <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="fa-solid fa-plug me-2"></i>Power Supplies</span>
@@ -180,7 +200,7 @@
 {% endif %}
 
 <!-- HDD Table -->
-<div class="card">
+<div class="card" {% if server.is_vms %}style="display:none"{% endif %}>
     <div class="card-header d-flex align-items-center justify-content-between">
         <span><i class="fa-solid fa-hard-drive me-2"></i>Storage Drives</span>
         <span class="badge bg-secondary">{{ server.hdds|length }} drives</span>
@@ -282,5 +302,46 @@ document.getElementById('btnRefresh').addEventListener('click', function () {
         .then(function () { window.location.reload(); })
         .catch(function () { window.location.reload(); });
 });
+
+{% if server.is_vms %}
+var btnLoadCam = document.getElementById('btnLoadCameras');
+if (btnLoadCam) btnLoadCam.addEventListener('click', function () {
+    var btn = this;
+    var body = document.getElementById('vmsCameraBody');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>';
+    fetch('{{ url_for("servers.api_vms_cameras", server_id=server.id) }}')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            var cams = data.cameras || [];
+            document.getElementById('vmsCamCount').textContent =
+                cams.filter(function(c){return c.is_active;}).length + '/' + cams.length;
+            if (!cams.length) {
+                body.innerHTML = '<div class="p-4 text-center" style="color:var(--text-muted)">Tidak ada kamera ditemukan di VMS.</div>';
+                return;
+            }
+            var rows = cams.map(function (c) {
+                var state = c.is_active
+                    ? '<span style="color:var(--success);font-size:0.8rem;"><i class="fa-solid fa-circle me-1"></i>Aktif</span>'
+                    : '<span style="color:var(--text-muted);font-size:0.8rem;"><i class="fa-regular fa-circle me-1"></i>' + (c.state || 'Offline') + '</span>';
+                return '<tr><td class="fw-semibold">' + c.name + '</td>' +
+                    '<td style="color:var(--text-muted);font-size:0.8rem;">' + (c.ip_address || '--') + '</td>' +
+                    '<td>' + state + '</td>' +
+                    '<td style="font-size:0.75rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (c.rtsp_main || '--') + '</td>' +
+                    '</tr>';
+            }).join('');
+            body.innerHTML = '<div class="table-responsive"><table class="table table-hover mb-0">' +
+                '<thead><tr><th>Nama</th><th>IP</th><th>Status</th><th>RTSP URL</th></tr></thead>' +
+                '<tbody>' + rows + '</tbody></table></div>';
+        })
+        .catch(function (e) {
+            body.innerHTML = '<div class="p-4 text-center" style="color:var(--danger)">Gagal load kamera: ' + e + '</div>';
+        })
+        .finally(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-rotate me-1"></i> Load Kamera';
+        });
+});
+{% endif %}
 </script>
 {% endblock %}

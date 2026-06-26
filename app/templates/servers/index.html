@@ -93,7 +93,32 @@
                     </div>
                 </div>
 
-                {% if server.hdds %}
+                {% if server.is_vms %}
+                <div class="mt-3 pt-3" style="border-top: 1px solid var(--border-color);">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 8px;">
+                        <i class="fa-solid fa-video me-1"></i> Kamera VMS
+                    </div>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="text-center">
+                            <div style="font-size: 1.4rem; font-weight: 700; color: var(--success);">{{ server.vms_cameras_active or 0 }}</div>
+                            <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Aktif</div>
+                        </div>
+                        <div style="color: var(--border-color);">/</div>
+                        <div class="text-center">
+                            <div style="font-size: 1.4rem; font-weight: 700;">{{ server.vms_cameras_total or 0 }}</div>
+                            <div style="font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase;">Total</div>
+                        </div>
+                        {% if server.vms_cameras_total and server.vms_cameras_total > 0 %}
+                        <div class="flex-grow-1">
+                            <div class="health-bar">
+                                <div class="health-bar-fill {{ 'normal' if (server.vms_cameras_active / server.vms_cameras_total) > 0.8 else 'warning' }}"
+                                     style="width: {{ ((server.vms_cameras_active or 0) / server.vms_cameras_total * 100)|round }}%;"></div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% elif server.hdds %}
                 <div class="mt-3 pt-3" style="border-top: 1px solid var(--border-color);">
                     <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 8px;">
                         <i class="fa-solid fa-hard-drive me-1"></i>{{ server.hdds|length }} Drives
@@ -157,6 +182,7 @@
                             <select class="form-select" name="server_type" id="serverTypeSelect">
                                 <option value="vxstorage" selected>Pelco VX Storage</option>
                                 <option value="endura">Pelco Endura (NSM5200)</option>
+                                <option value="axxon">Axxon Next VMS</option>
                                 <option value="other">Other</option>
                             </select>
                         </div>
@@ -194,6 +220,23 @@
                             <label class="form-label">SNMP Community</label>
                             <input type="text" class="form-control" name="snmp_community" value="public">
                         </div>
+                        <div class="col-12 vms-fields" style="display:none;"><hr style="border-color: var(--border-color);">
+                            <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px;">
+                                <i class="fa-solid fa-video me-1"></i>Axxon Next Connection
+                            </div>
+                        </div>
+                        <div class="col-sm-2 vms-fields" style="display:none;">
+                            <label class="form-label">API Port</label>
+                            <input type="number" class="form-control" name="vms_port" value="8116" min="1" max="65535">
+                        </div>
+                        <div class="col-sm-5 vms-fields" style="display:none;">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-control" name="vms_username" placeholder="admin">
+                        </div>
+                        <div class="col-sm-5 vms-fields" style="display:none;">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" name="vms_password" placeholder="Password">
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer" style="border-color: var(--border-color);">
@@ -213,8 +256,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (s) s.addEventListener('change', function () {
         var vx = this.value === 'vxstorage';
         var en = this.value === 'endura';
+        var ax = this.value === 'axxon';
         document.querySelectorAll('.idrac-fields').forEach(function (e) { e.style.display = vx ? '' : 'none'; });
         document.querySelectorAll('.snmp-fields').forEach(function (e) { e.style.display = en ? '' : 'none'; });
+        document.querySelectorAll('.vms-fields').forEach(function (e) { e.style.display = ax ? '' : 'none'; });
     });
 });
 </script>

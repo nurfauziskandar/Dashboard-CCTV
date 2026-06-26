@@ -7,6 +7,28 @@ from flask import Flask, session, redirect, url_for, request
 from config import config_map
 
 
+def _migrate_server_vms_columns(db):
+    """Add VMS columns to existing server table (SQLite safe)."""
+    new_cols = [
+        ('vms_port',            'INTEGER DEFAULT 8116'),
+        ('vms_username',        'VARCHAR(80)'),
+        ('vms_password',        'VARCHAR(255)'),
+        ('vms_cameras_total',   'INTEGER DEFAULT 0'),
+        ('vms_cameras_active',  'INTEGER DEFAULT 0'),
+        ('vms_version',         'VARCHAR(80)'),
+    ]
+    with db.engine.connect() as conn:
+        existing = {row[1] for row in conn.execute(
+            db.text("PRAGMA table_info(server)")
+        )}
+        for col, col_type in new_cols:
+            if col not in existing:
+                conn.execute(db.text(
+                    f'ALTER TABLE server ADD COLUMN {col} {col_type}'
+                ))
+        conn.commit()
+
+
 def _setup_logging(app):
     logs_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'logs')
     os.makedirs(logs_dir, exist_ok=True)
@@ -87,6 +109,7 @@ def create_app(config_name=None):
 
     with app.app_context():
         db.create_all()
+        _migrate_server_vms_columns(db)
 
         # Init services
         from app.services.camera_service import CameraService
