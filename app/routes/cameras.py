@@ -319,6 +319,31 @@ def api_axxon_list():
     return jsonify({'cameras': cameras})
 
 
+@bp.route('/api/axxon/raw', methods=['POST'])
+def api_axxon_raw():
+    """Return raw API response from Axxon Next — for debugging endpoint/format."""
+    data = request.get_json(force=True)
+    host = data.get('host', '').strip()
+    port = int(data.get('port', 8116))
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    path = data.get('path', '/asip-api/video-origins/')
+
+    import requests as req
+    from requests.auth import HTTPBasicAuth
+    try:
+        url = f'http://{host}:{port}{path}'
+        r = req.get(url, auth=HTTPBasicAuth(username, password), timeout=8)
+        return jsonify({
+            'url': url,
+            'status': r.status_code,
+            'headers': dict(r.headers),
+            'body': r.text[:4000],
+        })
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
 @bp.route('/api/axxon/import', methods=['POST'])
 def api_axxon_import():
     """Import selected cameras from Axxon Next into the dashboard DB."""

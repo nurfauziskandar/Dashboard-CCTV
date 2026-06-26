@@ -14,11 +14,14 @@ log = logging.getLogger(__name__)
 
 _TIMEOUT = 8  # seconds
 
-# Axxon Next 4.x REST API paths (in priority order for auto-detection)
+# Axxon Next REST API paths (priority order, auto-detected at runtime).
+# 4.4.x: /asip-api/video-origins/ or /video-origins/
+# 4.5.x+: may differ (Bearer/gRPC auth)
 _CAMERA_LIST_PATHS = [
+    '/asip-api/video-origins/',
+    '/video-origins/',
     '/api/v1/cameras',
     '/api/cameras',
-    '/api/v1/video/cameras',
 ]
 
 
@@ -91,34 +94,60 @@ class AxxonNextAdapter:
             return []
 
         cameras = []
-        items = raw if isinstance(raw, list) else raw.get('cameras', raw.get('data', []))
+        # /video-origins/ returns a list or dict with items
+        if isinstance(raw, dict):
+            items = (
+                raw.get('origins') or raw.get('cameras') or
+                raw.get('data') or raw.get('videoOrigins') or
+                list(raw.values())[0] if raw else []
+            )
+            if not isinstance(items, list):
+                items = []
+        else:
+            items = raw if isinstance(raw, list) else []
+
+        log.debug('Axxon list_cameras: raw type=%s len=%d', type(raw).__name__, len(items))
 
         for cam in items:
+            # /video-origins/ — Axxon Next 4.4.x camera object
+            # friendlyNameLong is the canonical camera ID (format: "axxon:vhod_1.Vhod_1")
+            friendly_long = (
+                cam.get('friendlyNameLong') or cam.get('friendly_name_long') or ''
+            )
+            friendly_short = (
+                cam.get('friendlyName') or cam.get('friendly_name') or
+                cam.get('displayName') or cam.get('name') or cam.get('Name', '')
+            )
             cam_id = (
-                cam.get('id') or cam.get('cameraId') or
-                cam.get('camera_id') or cam.get('Id', '')
+                cam.get('id') or cam.get('cameraId') or cam.get('Id') or
+                friendly_long or friendly_short
             )
-            name = (
-                cam.get('displayName') or cam.get('name') or
-                cam.get('Name') or cam.get('caption') or cam_id
-            )
+            # Axxon camera URL prefix: "axxon:<friendlyNameLong>"
+            axxon_ref = friendly_long if friendly_long else f'axxon:{cam_id}'
+
+            name = friendly_short or cam_id
+
             state = str(
                 cam.get('state') or cam.get('status') or cam.get('State', '')
             ).lower()
-            is_active = state in ('active', 'online', 'connected', 'enabled', '')
+            is_active = state in ('active', 'online', 'connected', 'enabled', 'recording', '')
 
+            # RTSP URI format for Axxon Next 4.4.x — best-effort, needs field test
+            # Common patterns seen in integrations:
+            #   rtsp://host:554/<friendlyNameLong>/main
+            #   rtsp://host:554/video/<cam_id>
+            rtsp_base = friendly_long.replace('axxon:', '') if friendly_long.startswith('axxon:') else cam_id
             rtsp_main = (
-                cam.get('rtspUrl') or cam.get('streamUrl') or
-                cam.get('mainStream') or
-                f'rtsp://{host}:554/live/{cam_id}/main'
+                cam.get('rtspUrl') or cam.get('streamUrl') or cam.get('mainStream') or
+                f'rtsp://{host}:554/{rtsp_base}'
             )
             rtsp_sub = (
                 cam.get('subStreamUrl') or cam.get('subStream') or
-                f'rtsp://{host}:554/live/{cam_id}/sub'
+                f'rtsp://{host}:554/{rtsp_base}/sub'
             )
 
             cameras.append({
-                'id': cam_id,
+                'id': axxon_ref,
                 'name': name,
                 'is_active': is_active,
                 'state': state,
@@ -128,6 +157,7 @@ class AxxonNextAdapter:
                 'model': cam.get('model') or cam.get('deviceModel'),
                 'ip_address': cam.get('ip') or cam.get('address') or host,
                 'location': cam.get('location') or cam.get('locationName'),
+                '_raw': cam,  # keep raw for debugging
             })
 
         log.info('Axxon list_cameras: %d cameras via %s', len(cameras), used_path)
