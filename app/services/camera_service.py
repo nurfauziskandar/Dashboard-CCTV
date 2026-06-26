@@ -1,4 +1,5 @@
 import logging
+import socket
 from datetime import datetime, timezone
 from app.extensions import db
 from app.models.camera import Camera
@@ -173,14 +174,32 @@ class CameraService:
             cameras = Camera.query.all()
             for camera in cameras:
                 try:
-                    result = self.adapter.probe(
-                        camera.ip_address, camera.port,
-                        camera.onvif_username, camera.onvif_password
-                    )
-                    camera.is_active = result['is_active']
-                    camera.stream_uri = result.get('stream_uri')
-                    camera.snapshot_uri = result.get('snapshot_uri')
-                    camera.last_seen = result.get('last_seen')
+                    if camera.stream_uri:
+                        # RTSP camera — TCP reachability check only.
+                        # Never overwrite stream_uri via ONVIF probe.
+                        rtsp_port = camera.port if camera.port and camera.port != 80 else 554
+                        try:
+                            s = socket.create_connection(
+                                (camera.ip_address, rtsp_port), timeout=5
+                            )
+                            s.close()
+                            camera.is_active = True
+                            camera.last_seen = datetime.now(timezone.utc)
+                        except Exception:
+                            camera.is_active = False
+                    else:
+                        # ONVIF camera — full probe, update URI only on success.
+                        result = self.adapter.probe(
+                            camera.ip_address, camera.port,
+                            camera.onvif_username, camera.onvif_password
+                        )
+                        camera.is_active = result['is_active']
+                        if result['is_active']:
+                            if result.get('stream_uri'):
+                                camera.stream_uri = result['stream_uri']
+                            if result.get('snapshot_uri'):
+                                camera.snapshot_uri = result['snapshot_uri']
+                            camera.last_seen = result.get('last_seen')
                     camera.updated_at = datetime.now(timezone.utc)
                 except Exception as exc:
                     log.error('poll_all: error probing camera id=%d name=%s ip=%s: %s',
