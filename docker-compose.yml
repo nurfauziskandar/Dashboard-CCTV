@@ -13,16 +13,14 @@ services:
     environment:
       FLASK_ENV: production
       SECRET_KEY: ${SECRET_KEY}
-      STORAGE_URL: http://storage:8080
-      STORAGE_API_TOKEN: ${STORAGE_API_TOKEN}
+      STORAGE_URL: ${STORAGE_URL:-}
+      STORAGE_API_TOKEN: ${STORAGE_API_TOKEN:-}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     volumes:
       - dashboard_db:/app/instance
       - dashboard_logs:/app/logs
     restart: unless-stopped
-    depends_on:
-      - storage
 
   storage:
     build:
