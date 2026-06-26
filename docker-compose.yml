@@ -1,0 +1,52 @@
+services:
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dashboard-cctv:latest
+    container_name: dashboard-cctv
+    # network_mode: host — aktifkan jika butuh ONVIF WS-Discovery (UDP multicast)
+    # Tanpa host network, kamera tetap bisa ditambah manual via IP.
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${SECRET_KEY:-ganti-ini-dengan-secret-key-yang-kuat}
+      STORAGE_URL: http://storage:8080
+      STORAGE_API_TOKEN: ${STORAGE_API_TOKEN:-ganti-ini-dengan-token-min-32-karakter}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+    volumes:
+      - dashboard_db:/app/instance
+      - dashboard_logs:/app/logs
+    restart: unless-stopped
+    depends_on:
+      - storage
+
+  storage:
+    build:
+      context: ./server-storage
+      dockerfile: Dockerfile
+    image: server-storage:latest
+    container_name: server-storage
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+      - "10161:10161/udp"
+    environment:
+      STORAGE_API_TOKEN: ${STORAGE_API_TOKEN:-ganti-ini-dengan-token-min-32-karakter}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-storage123}
+    volumes:
+      - storage_recordings:/app/recordings
+      - storage_logs:/app/logs
+      - storage_certs:/app/.certs
+    restart: unless-stopped
+
+volumes:
+  dashboard_db:
+  dashboard_logs:
+  storage_recordings:
+  storage_logs:
+  storage_certs:

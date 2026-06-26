@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+instance/
+logs/
+documents/
+.env
+.env.*
+.git/
+.gitignore
+*.md
+server-storage/
