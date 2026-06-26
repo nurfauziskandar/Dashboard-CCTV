@@ -12,11 +12,11 @@ services:
       - "5000:5000"
     environment:
       FLASK_ENV: production
-      SECRET_KEY: ${SECRET_KEY:-ganti-ini-dengan-secret-key-yang-kuat}
+      SECRET_KEY: ${SECRET_KEY}
       STORAGE_URL: http://storage:8080
-      STORAGE_API_TOKEN: ${STORAGE_API_TOKEN:-ganti-ini-dengan-token-min-32-karakter}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      STORAGE_API_TOKEN: ${STORAGE_API_TOKEN}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     volumes:
       - dashboard_db:/app/instance
       - dashboard_logs:/app/logs
@@ -35,9 +35,9 @@ services:
       - "8443:8443"
       - "10161:10161/udp"
     environment:
-      STORAGE_API_TOKEN: ${STORAGE_API_TOKEN:-ganti-ini-dengan-token-min-32-karakter}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-storage123}
+      STORAGE_API_TOKEN: ${STORAGE_API_TOKEN}
+      ADMIN_USERNAME: ${STORAGE_ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${STORAGE_ADMIN_PASSWORD}
     volumes:
       - storage_recordings:/app/recordings
       - storage_logs:/app/logs
