@@ -204,7 +204,8 @@ class CameraRecorder:
                 '-loglevel', 'error',
                 '-stats',
                 '-rtsp_transport', 'tcp',
-                '-fflags', '+genpts+discardcorrupt',
+                '-use_wallclock_as_timestamps', '1',
+                '-fflags', '+genpts+discardcorrupt+igndts',
                 '-i', self.rtsp_uri,
                 '-map', '0:v:0',                  # video only
                 '-c:v', 'libx264',
