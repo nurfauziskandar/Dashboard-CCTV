@@ -2,12 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# OpenCV headless system deps
+# OpenCV headless + ffmpeg binary (for RTSP recording via subprocess)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libsm6 \
     libxrender1 \
     libxext6 \
+    ffmpeg \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
