@@ -287,6 +287,94 @@ def import_from_storage():
     return redirect(url_for('cameras.index'))
 
 
+# --- Axxon Next import ---
+
+@bp.route('/api/axxon/test', methods=['POST'])
+def api_axxon_test():
+    """Test connection to an Axxon Next server."""
+    data = request.get_json(force=True)
+    host = data.get('host', '').strip()
+    port = int(data.get('port', 8116))
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    if not host or not username:
+        return jsonify({'ok': False, 'error': 'host dan username wajib diisi'}), 400
+    from app.services.axxon_adapter import AxxonNextAdapter
+    result = AxxonNextAdapter().test_connection(host, port, username, password)
+    return jsonify(result)
+
+
+@bp.route('/api/axxon/list', methods=['POST'])
+def api_axxon_list():
+    """Return list of cameras from Axxon Next server."""
+    data = request.get_json(force=True)
+    host = data.get('host', '').strip()
+    port = int(data.get('port', 8116))
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    if not host or not username:
+        return jsonify({'error': 'host dan username wajib diisi'}), 400
+    from app.services.axxon_adapter import AxxonNextAdapter
+    cameras = AxxonNextAdapter().list_cameras(host, port, username, password)
+    return jsonify({'cameras': cameras})
+
+
+@bp.route('/api/axxon/import', methods=['POST'])
+def api_axxon_import():
+    """Import selected cameras from Axxon Next into the dashboard DB."""
+    data = request.get_json(force=True)
+    host = data.get('host', '').strip()
+    port = int(data.get('port', 8116))
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    selected_ids = set(data.get('camera_ids', []))
+    use_sub = bool(data.get('use_sub_stream', False))
+
+    if not host or not username or not selected_ids:
+        return jsonify({'error': 'host, username, dan camera_ids wajib diisi'}), 400
+
+    from app.services.axxon_adapter import AxxonNextAdapter
+    camera_service = current_app.config['camera_service']
+
+    all_cams = AxxonNextAdapter().list_cameras(host, port, username, password)
+    imported = patched = failed = 0
+
+    for cam in all_cams:
+        if cam['id'] not in selected_ids:
+            continue
+        stream_uri = cam['rtsp_sub'] if use_sub else cam['rtsp_main']
+        cam_data = {
+            'add_mode': 'rtsp',
+            'name': cam['name'],
+            'ip_address': host,
+            'port': 554,
+            'manufacturer': cam.get('manufacturer') or 'Axxon Next',
+            'model': cam.get('model'),
+            'location_name': cam.get('location'),
+            'stream_uri': stream_uri,
+        }
+        try:
+            from app.models.camera import Camera
+            from app.extensions import db
+            existing = Camera.query.filter_by(name=cam['name']).first()
+            if existing:
+                camera_service.update(existing.id, cam_data)
+                patched += 1
+            else:
+                camera_service.create(cam_data)
+                imported += 1
+        except Exception as exc:
+            current_app.logger.warning('axxon_import: %s failed: %s', cam['name'], exc)
+            failed += 1
+
+    return jsonify({
+        'imported': imported,
+        'patched': patched,
+        'failed': failed,
+        'total': imported + patched,
+    })
+
+
 # --- Streaming ---
 
 @bp.route('/<int:camera_id>/stream')
